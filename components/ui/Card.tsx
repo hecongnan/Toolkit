@@ -5,7 +5,7 @@ export function Card({ className, ...rest }: HTMLAttributes<HTMLDivElement>) {
   return (
     <div
       className={cn(
-        "surface p-5 transition hover:border-white/10",
+        "surface p-5 transition hover:border-[color:var(--border-default)]",
         className,
       )}
       {...rest}

@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
+import Script from "next/script";
 import "./globals.css";
 import { AppShell } from "@/components/shell/AppShell";
 
@@ -24,8 +25,11 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="zh-CN" className={`${inter.variable} ${jetbrains.variable}`}>
+    <html lang="zh-CN" className={`${inter.variable} ${jetbrains.variable}`} suppressHydrationWarning>
       <body>
+        <Script id="theme-init" strategy="beforeInteractive">
+          {`try{var theme=localStorage.getItem('toolkit-theme');document.documentElement.dataset.theme=theme==='light'?'light':'dark'}catch{document.documentElement.dataset.theme='dark'}`}
+        </Script>
         <AppShell>{children}</AppShell>
       </body>
     </html>

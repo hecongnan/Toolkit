@@ -4,7 +4,7 @@ import { Github } from "lucide-react";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { PageHeader } from "@/components/shell/PageHeader";
-import { AnalysisChat } from "@/components/github/AnalysisChat";
+import { FloatingAnalysisChat } from "@/components/github/FloatingAnalysisChat";
 import { HistoryList } from "@/components/github/HistoryList";
 import { RepoForm } from "@/components/github/RepoForm";
 import { ReportView } from "@/components/github/ReportView";
@@ -43,6 +43,7 @@ function GitHubPageInner() {
   const [isStreaming, setIsStreaming] = useState(false);
   const [pendingRepoUrl, setPendingRepoUrl] = useState<string>("");
   const [loadingHistory, setLoadingHistory] = useState(true);
+  const [isAiOpen, setIsAiOpen] = useState(false);
 
   const abortRef = useRef<AbortController | null>(null);
   const router = useRouter();
@@ -286,8 +287,8 @@ function GitHubPageInner() {
                   status={status}
                   error={null}
                   isStreaming={isStreaming}
+                  onAskAi={() => setIsAiOpen(true)}
                 />
-                {selected && !isStreaming && <AnalysisChat report={selected} />}
               </>
             ) : !error && !isStreaming ? (
               <div className="surface px-6 py-12 text-center text-sm text-zinc-400">
@@ -323,6 +324,13 @@ function GitHubPageInner() {
           </div>
         </div>
       </div>
+
+      <FloatingAnalysisChat
+        report={selected}
+        open={isAiOpen}
+        onOpenChange={setIsAiOpen}
+        disabled={isStreaming}
+      />
     </>
   );
 }

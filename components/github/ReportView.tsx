@@ -1,6 +1,6 @@
 "use client";
 
-import { Copy, Download, ExternalLink } from "lucide-react";
+import { Bot, Copy, Download, ExternalLink } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Button } from "@/components/ui/Button";
@@ -25,6 +25,7 @@ interface Props {
   status: { stage: string; message: string } | null;
   error: string | null;
   isStreaming: boolean;
+  onAskAi?: () => void;
 }
 
 export function ReportView({
@@ -34,6 +35,7 @@ export function ReportView({
   status,
   error,
   isStreaming,
+  onAskAi,
 }: Props) {
   const markdown = isStreaming || !report ? liveMarkdown : report.markdown;
   const repoUrl = report?.repoUrl;
@@ -104,11 +106,17 @@ export function ReportView({
                   href={repoUrl}
                   target="_blank"
                   rel="noreferrer"
-                  className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.04] px-3 text-xs text-zinc-300 hover:bg-white/[0.08] focus-ring"
+                  className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[color:var(--border-default)] bg-[var(--control-bg)] px-3 text-xs text-[color:var(--text-secondary)] hover:bg-[var(--control-hover)] focus-ring"
                 >
                   <ExternalLink size={13} />
                   打开仓库
                 </a>
+              )}
+              {report && !isStreaming && onAskAi && (
+                <Button size="sm" variant="primary" onClick={onAskAi}>
+                  <Bot size={13} />
+                  问 AI
+                </Button>
               )}
               <Button size="sm" variant="ghost" onClick={copy}>
                 <Copy size={13} />

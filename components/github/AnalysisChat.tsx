@@ -16,6 +16,7 @@ import type { AnalysisChatMessage, AnalysisReport } from "@/lib/types";
 
 interface Props {
   report: AnalysisReport | null;
+  variant?: "card" | "panel";
 }
 
 function timeLabel(ts: number): string {
@@ -27,7 +28,7 @@ function timeLabel(ts: number): string {
   });
 }
 
-export function AnalysisChat({ report }: Props) {
+export function AnalysisChat({ report, variant = "card" }: Props) {
   const [messages, setMessages] = useState<AnalysisChatMessage[]>([]);
   const [draft, setDraft] = useState("");
   const [loading, setLoading] = useState(false);
@@ -81,6 +82,8 @@ export function AnalysisChat({ report }: Props) {
     () => Boolean(reportId && draft.trim() && !sending),
     [draft, reportId, sending],
   );
+  const isPanel = variant === "panel";
+  const Container = isPanel ? "div" : Card;
 
   const send = async () => {
     const content = draft.trim();
@@ -220,20 +223,39 @@ export function AnalysisChat({ report }: Props) {
     }
   };
 
-  if (!report) return null;
+  if (!report) {
+    return (
+      <div
+        className={cn(
+          "overflow-hidden",
+          isPanel ? "" : "surface p-5",
+        )}
+      >
+        <div className="rounded-2xl border border-dashed border-[color:var(--border-default)] bg-[var(--control-bg)] px-4 py-8 text-center">
+          <div className="mx-auto mb-3 grid h-10 w-10 place-items-center rounded-full bg-fuchsia-500/15 text-fuchsia-300">
+            <Bot size={18} />
+          </div>
+          <p className="text-sm font-semibold text-[color:var(--text-primary)]">先选择一份报告</p>
+          <p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-[color:var(--text-tertiary)]">
+            生成或从右侧历史中选择 GitHub 分析报告后，就可以在这里基于报告继续追问。
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <Card className="!p-0 overflow-hidden">
-      <div className="border-b border-white/5 bg-white/[0.02] px-5 py-4">
+    <Container className={cn("!p-0 overflow-hidden", isPanel && "bg-transparent")}>
+      <div className="border-b border-[color:var(--border-subtle)] bg-[var(--surface-header)] px-5 py-4">
         <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <p className="text-sm font-semibold text-zinc-100">AI 追问</p>
-            <p className="text-xs text-zinc-500">
+            <p className="text-sm font-semibold text-[color:var(--text-primary)]">AI 追问</p>
+            <p className="text-xs text-[color:var(--text-muted)]">
               基于当前报告继续提问，DeepSeek 会结合报告上下文回答。
             </p>
           </div>
           {(loading || sending || status) && (
-            <span className="mt-2 inline-flex items-center gap-2 text-xs text-zinc-400 sm:mt-0">
+            <span className="mt-2 inline-flex items-center gap-2 text-xs text-[color:var(--text-tertiary)] sm:mt-0">
               <Spinner size={13} />
               {status ?? (loading ? "正在加载历史..." : "正在生成回答...")}
             </span>
@@ -250,7 +272,7 @@ export function AnalysisChat({ report }: Props) {
 
         <div className="max-h-[520px] space-y-3 overflow-y-auto pr-1">
           {!loading && messages.length === 0 && (
-            <div className="rounded-2xl border border-dashed border-white/10 bg-white/[0.02] px-4 py-6 text-center text-sm text-zinc-500">
+            <div className="rounded-2xl border border-dashed border-[color:var(--border-default)] bg-[var(--control-bg)] px-4 py-6 text-center text-sm text-[color:var(--text-muted)]">
               还没有追问。可以问：“这个项目的入口文件在哪里？”或“我应该先读哪些模块？”
             </div>
           )}
@@ -272,11 +294,11 @@ export function AnalysisChat({ report }: Props) {
                     "max-w-[86%] rounded-2xl px-4 py-3 text-sm leading-6",
                     isUser
                       ? "bg-fuchsia-500/20 text-zinc-50"
-                      : "border border-white/10 bg-white/[0.04] text-zinc-200",
+                      : "border border-[color:var(--border-default)] bg-[var(--control-bg)] text-[color:var(--text-secondary)]",
                   )}
                 >
                   <p className="whitespace-pre-wrap">{message.content || "..."}</p>
-                  <p className="mt-2 text-[10px] text-zinc-600">{timeLabel(message.createdAt)}</p>
+                  <p className="mt-2 text-[10px] text-[color:var(--text-faint)]">{timeLabel(message.createdAt)}</p>
                 </div>
                 {isUser && (
                   <div className="mt-1 grid h-8 w-8 shrink-0 place-items-center rounded-full bg-sky-500/15 text-sky-200">
@@ -288,7 +310,7 @@ export function AnalysisChat({ report }: Props) {
           })}
         </div>
 
-        <div className="space-y-3 border-t border-white/5 pt-4">
+        <div className="space-y-3 border-t border-[color:var(--border-subtle)] pt-4">
           <Textarea
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
@@ -304,7 +326,7 @@ export function AnalysisChat({ report }: Props) {
             }}
           />
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-[11px] text-zinc-600">
+            <p className="text-[11px] text-[color:var(--text-faint)]">
               {draft.length}/2000 · Ctrl/⌘ + Enter 发送
             </p>
             <Button onClick={send} disabled={!canSend} variant="primary" className="sm:min-w-[110px]">
@@ -314,6 +336,6 @@ export function AnalysisChat({ report }: Props) {
           </div>
         </div>
       </div>
-    </Card>
+    </Container>
   );
 }

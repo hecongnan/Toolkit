@@ -1,18 +1,36 @@
 "use client";
 
-import { Menu, Sparkles, X } from "lucide-react";
+import { Menu, Moon, Sparkles, Sun, X } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
 import { Sidebar } from "./Sidebar";
 import { cn } from "@/lib/cn";
 
 const AUTH_ROUTES = ["/login", "/register"];
+type Theme = "dark" | "light";
 
 export function AppShell({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false);
+  const [theme, setTheme] = useState<Theme>("dark");
   const pathname = usePathname();
 
   const isAuthRoute = AUTH_ROUTES.some((route) => pathname?.startsWith(route));
+
+  useEffect(() => {
+    const saved = window.localStorage.getItem("toolkit-theme");
+    const nextTheme: Theme = saved === "light" ? "light" : "dark";
+    setTheme(nextTheme);
+    document.documentElement.dataset.theme = nextTheme;
+  }, []);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    window.localStorage.setItem("toolkit-theme", theme);
+  }, [theme]);
+
+  const toggleTheme = () => {
+    setTheme((current) => (current === "dark" ? "light" : "dark"));
+  };
 
   // Auto-close drawer on route change.
   useEffect(() => {
@@ -34,11 +52,11 @@ export function AppShell({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-screen md:flex">
       {/* Mobile top bar */}
-      <header className="md:hidden sticky top-0 z-30 flex h-14 items-center justify-between border-b border-white/5 bg-zinc-950/80 px-4 backdrop-blur-xl">
+      <header className="md:hidden sticky top-0 z-30 flex h-14 items-center justify-between border-b border-[color:var(--border-subtle)] bg-[var(--surface-panel)] px-4 backdrop-blur-xl">
         <button
           aria-label="Open menu"
           onClick={() => setOpen(true)}
-          className="rounded-lg p-2 text-zinc-300 hover:bg-white/5 focus-ring"
+          className="rounded-lg p-2 text-[color:var(--text-secondary)] hover:bg-[var(--control-hover)] focus-ring"
         >
           <Menu size={20} />
         </button>
@@ -48,7 +66,14 @@ export function AppShell({ children }: { children: ReactNode }) {
           </div>
           <span className="text-sm font-semibold">Toolkit</span>
         </div>
-        <span className="w-9" />
+        <button
+          type="button"
+          aria-label={theme === "dark" ? "切换到日间样式" : "切换到夜间样式"}
+          onClick={toggleTheme}
+          className="rounded-lg p-2 text-[color:var(--text-secondary)] hover:bg-[var(--control-hover)] focus-ring"
+        >
+          {theme === "dark" ? <Moon size={18} /> : <Sun size={18} />}
+        </button>
       </header>
 
       {/* Mobile drawer */}
@@ -75,17 +100,17 @@ export function AppShell({ children }: { children: ReactNode }) {
           <button
             aria-label="Close menu"
             onClick={() => setOpen(false)}
-            className="absolute right-3 top-3 z-10 rounded-lg p-1.5 text-zinc-400 hover:bg-white/5 hover:text-zinc-100 focus-ring"
+            className="absolute right-3 top-3 z-10 rounded-lg p-1.5 text-[color:var(--text-tertiary)] hover:bg-[var(--control-hover)] hover:text-[color:var(--text-primary)] focus-ring"
           >
             <X size={18} />
           </button>
-          <Sidebar onNavigate={() => setOpen(false)} />
+          <Sidebar onNavigate={() => setOpen(false)} theme={theme} onToggleTheme={toggleTheme} />
         </div>
       </div>
 
       {/* Desktop sidebar */}
       <div className="hidden md:block md:w-60 md:shrink-0 md:sticky md:top-0 md:h-screen">
-        <Sidebar />
+        <Sidebar theme={theme} onToggleTheme={toggleTheme} />
       </div>
 
       <main className="flex-1 min-w-0">

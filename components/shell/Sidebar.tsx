@@ -9,7 +9,9 @@ import {
   CheckCircle2,
   Github,
   LogOut,
+  Moon,
   Sparkles,
+  Sun,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { createClient } from "@/lib/supabase/client";
@@ -23,9 +25,11 @@ const NAV = [
 
 interface SidebarProps {
   onNavigate?: () => void;
+  theme?: "dark" | "light";
+  onToggleTheme?: () => void;
 }
 
-export function Sidebar({ onNavigate }: SidebarProps) {
+export function Sidebar({ onNavigate, theme = "dark", onToggleTheme }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const [email, setEmail] = useState<string | null>(null);
@@ -53,7 +57,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
   };
 
   return (
-    <aside className="flex h-full w-full flex-col gap-2 border-r border-white/5 bg-zinc-950/60 px-4 py-5 backdrop-blur-2xl">
+    <aside className="flex h-full w-full flex-col gap-2 border-r border-[color:var(--border-subtle)] bg-[var(--surface-panel)] px-4 py-5 backdrop-blur-2xl">
       <Link
         href="/"
         onClick={onNavigate}
@@ -63,8 +67,8 @@ export function Sidebar({ onNavigate }: SidebarProps) {
           <Sparkles size={18} strokeWidth={2.4} />
         </div>
         <div className="leading-tight">
-          <p className="text-sm font-semibold tracking-wide text-zinc-50">Toolkit</p>
-          <p className="text-[11px] text-zinc-500">个人效能空间</p>
+          <p className="text-sm font-semibold tracking-wide text-[color:var(--text-primary)]">Toolkit</p>
+          <p className="text-[11px] text-[color:var(--text-muted)]">个人效能空间</p>
         </div>
       </Link>
 
@@ -80,8 +84,8 @@ export function Sidebar({ onNavigate }: SidebarProps) {
               className={cn(
                 "group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition focus-ring",
                 active
-                  ? "bg-white/[0.06] text-zinc-50"
-                  : "text-zinc-400 hover:bg-white/[0.04] hover:text-zinc-100",
+                  ? "bg-[var(--control-active)] text-[color:var(--text-primary)]"
+                  : "text-[color:var(--text-tertiary)] hover:bg-[var(--control-hover)] hover:text-[color:var(--text-primary)]",
               )}
             >
               {active && (
@@ -106,21 +110,32 @@ export function Sidebar({ onNavigate }: SidebarProps) {
       </nav>
 
       <div className="mt-auto space-y-3 px-2 py-3">
-        <div className="min-w-0 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2">
-          <p className="text-[11px] text-zinc-500">当前账号</p>
-          <p className="truncate text-xs font-medium text-zinc-300">
+        <button
+          type="button"
+          onClick={onToggleTheme}
+          className="flex w-full items-center justify-between rounded-xl border border-[color:var(--border-default)] bg-[var(--control-bg)] px-3 py-2 text-left text-xs font-medium text-[color:var(--text-secondary)] transition hover:bg-[var(--control-hover)] hover:text-[color:var(--text-primary)] focus-ring"
+        >
+          <span className="inline-flex items-center gap-2">
+            {theme === "light" ? <Sun size={14} /> : <Moon size={14} />}
+            {theme === "light" ? "日间样式" : "夜间样式"}
+          </span>
+          <span className="text-[10px] text-[color:var(--text-faint)]">切换</span>
+        </button>
+        <div className="min-w-0 rounded-xl border border-[color:var(--border-default)] bg-[var(--control-bg)] px-3 py-2">
+          <p className="text-[11px] text-[color:var(--text-muted)]">当前账号</p>
+          <p className="truncate text-xs font-medium text-[color:var(--text-secondary)]">
             {email ?? "已登录"}
           </p>
         </div>
         <button
           type="button"
           onClick={signOut}
-          className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-xs font-medium text-zinc-400 transition hover:bg-white/[0.04] hover:text-zinc-100 focus-ring"
+          className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-xs font-medium text-[color:var(--text-tertiary)] transition hover:bg-[var(--control-hover)] hover:text-[color:var(--text-primary)] focus-ring"
         >
           <LogOut size={14} />
           退出登录
         </button>
-        <p className="text-[11px] text-zinc-600">v0.2 · 云端同步</p>
+        <p className="text-[11px] text-[color:var(--text-faint)]">v0.2 · 云端同步</p>
       </div>
     </aside>
   );

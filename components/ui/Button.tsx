@@ -13,8 +13,9 @@ const variantClasses: Record<Variant, string> = {
   primary:
     "bg-brand-gradient text-white shadow-glow hover:brightness-110 active:brightness-95",
   secondary:
-    "border border-white/10 bg-white/[0.04] text-zinc-100 hover:bg-white/[0.08]",
-  ghost: "text-zinc-300 hover:bg-white/[0.06] hover:text-zinc-100",
+    "border border-[color:var(--border-default)] bg-[var(--control-bg)] text-[color:var(--text-primary)] hover:bg-[var(--control-hover)]",
+  ghost:
+    "text-[color:var(--text-secondary)] hover:bg-[var(--control-hover)] hover:text-[color:var(--text-primary)]",
   danger:
     "border border-rose-500/30 bg-rose-500/10 text-rose-200 hover:bg-rose-500/20",
 };
