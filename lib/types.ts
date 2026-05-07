@@ -1,4 +1,5 @@
 export type MaterialStatus = "todo" | "doing" | "done";
+export type AnalysisChatRole = "user" | "assistant";
 
 export interface Material {
   id: string;
@@ -30,5 +31,13 @@ export interface AnalysisReport {
   branch: string;
   summary: string;
   markdown: string;
+  createdAt: number;
+}
+
+export interface AnalysisChatMessage {
+  id: string;
+  reportId: string;
+  role: AnalysisChatRole;
+  content: string;
   createdAt: number;
 }

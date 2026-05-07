@@ -1,4 +1,11 @@
-import type { AnalysisReport, Material, MaterialStatus, Todo } from "@/lib/types";
+import type {
+  AnalysisChatMessage,
+  AnalysisChatRole,
+  AnalysisReport,
+  Material,
+  MaterialStatus,
+  Todo,
+} from "@/lib/types";
 
 export interface MaterialRow {
   id: string;
@@ -30,6 +37,14 @@ export interface AnalysisReportRow {
   branch: string;
   summary: string;
   markdown: string;
+  created_at: string;
+}
+
+export interface AnalysisChatRow {
+  id: string;
+  report_id: string;
+  role: AnalysisChatRole;
+  content: string;
   created_at: string;
 }
 
@@ -68,6 +83,16 @@ export function toAnalysisReport(row: AnalysisReportRow): AnalysisReport {
     branch: row.branch,
     summary: row.summary,
     markdown: row.markdown,
+    createdAt: new Date(row.created_at).getTime(),
+  };
+}
+
+export function toAnalysisChatMessage(row: AnalysisChatRow): AnalysisChatMessage {
+  return {
+    id: row.id,
+    reportId: row.report_id,
+    role: row.role,
+    content: row.content,
     createdAt: new Date(row.created_at).getTime(),
   };
 }

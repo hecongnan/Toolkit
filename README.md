@@ -4,7 +4,7 @@
 
 - **学习资料整理**：分类、标签、状态、优先级、搜索筛选
 - **每日 Todo**：按日期管理，进度追踪
-- **GitHub 仓库分析**：粘贴仓库地址，由 DeepSeek 自动生成“项目概述 / 技术栈 / 目录结构 / 核心模块 / 阅读建议”完整中文报告
+- **GitHub 仓库分析**：粘贴仓库地址，由 DeepSeek 自动生成“项目概述 / 技术栈 / 目录结构 / 核心模块 / 阅读建议”完整中文报告，并支持围绕报告继续 AI 追问
 
 技术栈：Next.js 14 (App Router) · React 18 · TypeScript · Tailwind CSS · Supabase Auth/Postgres · lucide-react · react-markdown。
 
@@ -18,7 +18,8 @@
 - 学习资料：Supabase Postgres `materials` 表
 - Todo：Supabase Postgres `todos` 表
 - GitHub 分析历史：Supabase Postgres `analysis_reports` 表
-- 数据隔离：三张表都带 `user_id`，并通过 Supabase RLS 限制 `auth.uid() = user_id`
+- GitHub 报告追问：Supabase Postgres `analysis_chats` 表
+- 数据隔离：四张表都带 `user_id`，并通过 Supabase RLS 限制 `auth.uid() = user_id`
 
 旧版本曾使用浏览器 `localStorage`：`toolkit:materials`、`toolkit:todos`、`toolkit:reports`。新版登录后会在 Dashboard 提示是否把本机旧数据导入当前账号。
 
@@ -67,7 +68,8 @@ npm run start
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | ✅ | Supabase anon public key，配合 RLS 使用 |
 | `ANTHROPIC_BASE_URL` | ✅ | DeepSeek 兼容入口，默认 `https://api.deepseek.com` |
 | `ANTHROPIC_AUTH_TOKEN` | ✅ | DeepSeek API token，仅服务端使用 |
-| `DEEPSEEK_MODEL` | ❌ | 默认 `deepseek-chat` |
+| `DEEPSEEK_MODEL` | ❌ | 报告生成模型，默认 `deepseek-chat` |
+| `DEEPSEEK_CHAT_MODEL` | ❌ | 报告追问模型，建议 `deepseek-v4-pro` |
 | `GITHUB_TOKEN` | ❌ | 可选；GitHub Personal Access Token，用于提升 API 限额 |
 
 > DeepSeek token 和 GitHub token 只在服务端使用，不会暴露到客户端 bundle。
@@ -96,6 +98,7 @@ npm run start
    - `ANTHROPIC_BASE_URL=https://api.deepseek.com`
    - `ANTHROPIC_AUTH_TOKEN`
    - `DEEPSEEK_MODEL=deepseek-chat`
+   - `DEEPSEEK_CHAT_MODEL=deepseek-v4-pro`
    - `GITHUB_TOKEN`（可选）
 4. 部署完成后，手机直接访问 Vercel 域名即可长期使用。
 
@@ -134,8 +137,10 @@ npm run start
 4. 调用 DeepSeek Chat Completions 流式生成分析报告
 5. 通过 SSE 推送给浏览器，前端流式渲染 Markdown 报告
 6. 完成后保存到当前用户的 `analysis_reports` 表，可在历史中回看 / 下载 / 复制
+7. 打开已保存报告后，可在“AI 追问”区域继续提问；问答历史保存到当前用户的 `analysis_chats` 表
 
 输出报告固定章节：项目概述、技术栈、目录结构、核心模块、阅读建议。
+追问回答会基于当前报告、仓库元信息和最近对话生成；如果报告信息不足，AI 会提示需要进一步查看哪些文件。
 
 ---
 

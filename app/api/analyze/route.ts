@@ -2,6 +2,7 @@ import type { NextRequest } from "next/server";
 import { fetchRepoBundle, parseRepoUrl } from "@/lib/github";
 import { ANALYZER_SYSTEM_PROMPT, buildUserPrompt } from "@/lib/prompts";
 import { createClient } from "@/lib/supabase/server";
+import { getDeepSeekApiKey, sseEvent, streamDeepSeekChat } from "@/lib/deepseek";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -9,25 +10,6 @@ export const dynamic = "force-dynamic";
 interface AnalyzeBody {
   repoUrl?: string;
   branch?: string;
-}
-
-interface DeepSeekChunk {
-  choices?: Array<{
-    delta?: { content?: string };
-    finish_reason?: string | null;
-  }>;
-  usage?: unknown;
-  error?: { message?: string };
-}
-
-function sseEvent(event: string, data: unknown): string {
-  return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
-}
-
-function deepSeekEndpoint(): string {
-  const baseURL =
-    process.env.ANTHROPIC_BASE_URL?.trim() || "https://api.deepseek.com";
-  return `${baseURL.replace(/\/+$/, "")}/chat/completions`;
 }
 
 function extractSummary(markdown: string): string {
@@ -70,10 +52,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const apiKey =
-    process.env.ANTHROPIC_AUTH_TOKEN?.trim() ||
-    process.env.ANTHROPIC_API_KEY?.trim();
-  if (!apiKey) {
+  if (!getDeepSeekApiKey()) {
     return Response.json(
       { error: "服务端缺少 ANTHROPIC_AUTH_TOKEN，请在 .env.local 中配置" },
       { status: 500 },
@@ -118,83 +97,20 @@ export async function POST(req: NextRequest) {
         send("status", { stage: "analyzing", message: "正在调用 DeepSeek 进行分析..." });
 
         const userPrompt = buildUserPrompt(bundle);
-        const response = await fetch(deepSeekEndpoint(), {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${apiKey}`,
-          },
-          body: JSON.stringify({
-            model: process.env.DEEPSEEK_MODEL?.trim() || "deepseek-chat",
-            stream: true,
-            max_tokens: 8192,
-            messages: [
-              { role: "system", content: ANALYZER_SYSTEM_PROMPT },
-              { role: "user", content: userPrompt },
-            ],
-          }),
-          signal: abortSignal,
-        });
-
-        if (!response.ok) {
-          const detail = await response.text();
-          throw new Error(`DeepSeek API ${response.status}: ${detail}`);
-        }
-        if (!response.body) {
-          throw new Error("DeepSeek API 没有返回流式响应体");
-        }
-
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = "";
         let fullText = "";
-        let stopReason: string | null = null;
-        let usage: unknown = null;
-        let streamDone = false;
-
-        while (!streamDone) {
-          const { value, done } = await reader.read();
-          if (done) break;
-
-          buffer += decoder.decode(value, { stream: true });
-          let idx = buffer.indexOf("\n\n");
-          while (idx !== -1) {
-            const chunk = buffer.slice(0, idx);
-            buffer = buffer.slice(idx + 2);
-            idx = buffer.indexOf("\n\n");
-
-            const dataLines = chunk
-              .split("\n")
-              .map((line) => line.trim())
-              .filter((line) => line.startsWith("data:"))
-              .map((line) => line.slice(5).trim());
-
-            for (const data of dataLines) {
-              if (!data) continue;
-              if (data === "[DONE]") {
-                streamDone = true;
-                break;
-              }
-
-              const parsedChunk = JSON.parse(data) as DeepSeekChunk;
-              if (parsedChunk.error?.message) {
-                throw new Error(parsedChunk.error.message);
-              }
-              usage = parsedChunk.usage ?? usage;
-
-              for (const choice of parsedChunk.choices ?? []) {
-                const text = choice.delta?.content;
-                if (text) {
-                  fullText += text;
-                  send("delta", { text });
-                }
-                if (choice.finish_reason) {
-                  stopReason = choice.finish_reason;
-                }
-              }
-            }
-          }
-        }
+        const { usage, stopReason } = await streamDeepSeekChat({
+          model: process.env.DEEPSEEK_MODEL?.trim() || "deepseek-chat",
+          maxTokens: 8192,
+          messages: [
+            { role: "system", content: ANALYZER_SYSTEM_PROMPT },
+            { role: "user", content: userPrompt },
+          ],
+          signal: abortSignal,
+          onDelta(text) {
+            fullText += text;
+            send("delta", { text });
+          },
+        });
 
         const summary = extractSummary(fullText);
         const { data: savedReport, error: saveError } = await supabase

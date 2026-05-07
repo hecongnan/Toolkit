@@ -4,6 +4,7 @@ import { Github } from "lucide-react";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { PageHeader } from "@/components/shell/PageHeader";
+import { AnalysisChat } from "@/components/github/AnalysisChat";
 import { HistoryList } from "@/components/github/HistoryList";
 import { RepoForm } from "@/components/github/RepoForm";
 import { ReportView } from "@/components/github/ReportView";
@@ -277,14 +278,17 @@ function GitHubPageInner() {
               />
             )}
             {!error && (isStreaming || liveMarkdown || selected) ? (
-              <ReportView
-                report={selected}
-                liveMarkdown={liveMarkdown}
-                meta={displayMeta}
-                status={status}
-                error={null}
-                isStreaming={isStreaming}
-              />
+              <>
+                <ReportView
+                  report={selected}
+                  liveMarkdown={liveMarkdown}
+                  meta={displayMeta}
+                  status={status}
+                  error={null}
+                  isStreaming={isStreaming}
+                />
+                {selected && !isStreaming && <AnalysisChat report={selected} />}
+              </>
             ) : !error && !isStreaming ? (
               <div className="surface px-6 py-12 text-center text-sm text-zinc-400">
                 <Github

@@ -73,6 +73,52 @@ function fileBlock(path: string, content: string): string {
   return `### \`${path}\`\n\n\`\`\`\n${content}\n\`\`\``;
 }
 
+const CHAT_REPORT_LIMIT = 60000;
+
+export const ANALYSIS_CHAT_SYSTEM_PROMPT = `你是一位耐心的代码阅读导师，正在帮助用户理解一份已经生成的 GitHub 仓库分析报告。
+
+回答要求：
+1. 只基于提供的报告、仓库元信息和最近对话回答，不要编造没有依据的文件、函数或实现细节。
+2. 如果报告信息不足，直接说明“当前报告中看不出”，并建议用户进一步查看哪些文件或重新分析哪些内容。
+3. 使用中文，语气清晰实用；必要时保留英文技术术语。
+4. 尽量给出具体路径、阅读顺序、改造建议或下一步操作。
+5. 不要重复整份报告，围绕用户问题回答。`;
+
+interface ChatPromptReport {
+  repoUrl: string;
+  owner: string;
+  repo: string;
+  branch: string;
+  summary: string;
+  markdown: string;
+}
+
+export function buildAnalysisChatPrompt(
+  report: ChatPromptReport,
+  question: string,
+): string {
+  const markdown =
+    report.markdown.length > CHAT_REPORT_LIMIT
+      ? `${report.markdown.slice(0, CHAT_REPORT_LIMIT)}\n\n...（报告过长，后续内容已截断）`
+      : report.markdown;
+
+  return [
+    `# 仓库：${report.owner}/${report.repo}`,
+    `- 地址：${report.repoUrl}`,
+    `- 分支：${report.branch}`,
+    `- 摘要：${report.summary || "（无）"}`,
+    "",
+    "## 已生成的分析报告",
+    "```markdown",
+    markdown,
+    "```",
+    "",
+    "## 用户问题",
+    question,
+    "",
+    "请基于以上报告回答用户问题。",
+  ].join("\n");
+}
 export function buildUserPrompt(bundle: RepoBundle): string {
   const meta = bundle.meta;
   const parts: string[] = [];
