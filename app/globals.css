@@ -1,0 +1,118 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  html,
+  body {
+    @apply bg-zinc-950 text-zinc-100 antialiased;
+  }
+
+  body {
+    background-image:
+      radial-gradient(1200px 600px at 80% -10%, rgba(168, 85, 247, 0.12), transparent 60%),
+      radial-gradient(800px 500px at -10% 110%, rgba(244, 114, 182, 0.08), transparent 65%);
+    background-attachment: fixed;
+  }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.06);
+    border-radius: 999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.12);
+  }
+
+  ::selection {
+    background: rgba(217, 70, 239, 0.35);
+    color: #fff;
+  }
+}
+
+@layer components {
+  .surface {
+    @apply rounded-2xl border border-white/5 bg-white/[0.02] backdrop-blur-xl;
+  }
+
+  .surface-strong {
+    @apply rounded-2xl border border-white/10 bg-zinc-900/60 backdrop-blur-xl;
+  }
+
+  .text-gradient {
+    @apply bg-clip-text text-transparent bg-brand-gradient;
+  }
+
+  .focus-ring {
+    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fuchsia-400/50 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950;
+  }
+}
+
+/* Markdown report styling */
+.report-markdown {
+  @apply text-zinc-200 leading-relaxed;
+}
+.report-markdown h1 {
+  @apply mt-2 mb-6 text-3xl font-semibold text-gradient;
+}
+.report-markdown h2 {
+  @apply mt-10 mb-4 text-xl font-semibold text-zinc-100 flex items-center gap-2;
+}
+.report-markdown h3 {
+  @apply mt-6 mb-3 text-base font-semibold text-zinc-100;
+}
+.report-markdown p {
+  @apply my-3 text-zinc-300;
+}
+.report-markdown ul,
+.report-markdown ol {
+  @apply my-3 pl-6 space-y-1.5 text-zinc-300;
+}
+.report-markdown ul {
+  @apply list-disc marker:text-fuchsia-400/70;
+}
+.report-markdown ol {
+  @apply list-decimal marker:text-fuchsia-400/70;
+}
+.report-markdown li::marker {
+  @apply font-semibold;
+}
+.report-markdown a {
+  @apply text-fuchsia-300 hover:text-fuchsia-200 underline underline-offset-2;
+}
+.report-markdown code {
+  @apply rounded bg-white/5 px-1.5 py-0.5 text-[0.85em] font-mono text-fuchsia-200;
+}
+.report-markdown pre {
+  @apply my-4 overflow-x-auto rounded-xl border border-white/5 bg-black/40 p-4 text-sm;
+}
+.report-markdown pre code {
+  @apply bg-transparent p-0 text-zinc-200;
+}
+.report-markdown blockquote {
+  @apply my-4 border-l-2 border-fuchsia-400/50 pl-4 italic text-zinc-400;
+}
+.report-markdown table {
+  @apply my-4 w-full border-collapse text-sm;
+}
+.report-markdown th,
+.report-markdown td {
+  @apply border border-white/10 px-3 py-2 text-left;
+}
+.report-markdown th {
+  @apply bg-white/[0.03] font-semibold text-zinc-200;
+}
+.report-markdown hr {
+  @apply my-8 border-white/10;
+}
