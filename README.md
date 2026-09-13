@@ -104,6 +104,10 @@ npm run start
    - `GITHUB_TOKEN`（可选）
 4. 部署完成后，手机直接访问 Vercel 域名即可长期使用。
 
+## CloudBase Run 部署
+
+项目包含可直接用于 CloudBase Run 的多阶段 `Dockerfile`、standalone 构建配置和健康检查接口。完整步骤见 [`docs/cloudbase-run.md`](docs/cloudbase-run.md)。
+
 ---
 
 ## 功能介绍

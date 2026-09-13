@@ -1,0 +1,15 @@
+.git
+.github
+.next
+node_modules
+out
+dist
+coverage
+.env
+.env.*
+!.env.local.example
+*.log
+*.tsbuildinfo
+.DS_Store
+.vscode
+.idea
