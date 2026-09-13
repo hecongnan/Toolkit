@@ -1,5 +1,10 @@
 import type { NextRequest } from "next/server";
-import { sseEvent, streamDeepSeekChat, type DeepSeekMessage } from "@/lib/deepseek";
+import {
+  getDeepSeekApiKey,
+  sseEvent,
+  streamDeepSeekChat,
+  type DeepSeekMessage,
+} from "@/lib/deepseek";
 import {
   ANALYSIS_CHAT_SYSTEM_PROMPT,
   buildAnalysisChatPrompt,
@@ -16,10 +21,12 @@ export const dynamic = "force-dynamic";
 interface ChatBody {
   reportId?: string;
   message?: string;
+  aiModel?: string;
 }
 
 const MESSAGE_LIMIT = 2000;
 const HISTORY_LIMIT = 20;
+const MODEL_PATTERN = /^[a-zA-Z0-9._:/-]{1,100}$/;
 
 export async function POST(req: NextRequest) {
   const supabase = createClient();
@@ -53,6 +60,22 @@ export async function POST(req: NextRequest) {
       { error: `问题过长，请控制在 ${MESSAGE_LIMIT} 字以内` },
       { status: 400 },
     );
+  }
+
+  const userApiKey = req.headers.get("x-deepseek-api-key")?.trim();
+  if (userApiKey && userApiKey.length > 512) {
+    return Response.json({ error: "API Key 格式无效" }, { status: 400 });
+  }
+  const apiKey = userApiKey || getDeepSeekApiKey();
+  if (!apiKey) {
+    return Response.json(
+      { error: "请先在 AI 设置中填写 DeepSeek API Key" },
+      { status: 500 },
+    );
+  }
+  const requestedModel = body.aiModel?.trim();
+  if (requestedModel && !MODEL_PATTERN.test(requestedModel)) {
+    return Response.json({ error: "追问模型名称格式无效" }, { status: 400 });
   }
 
   const { data: report, error: reportError } = await supabase
@@ -142,7 +165,9 @@ export async function POST(req: NextRequest) {
 
         let answer = "";
         const { usage, stopReason } = await streamDeepSeekChat({
+          apiKey,
           model:
+            requestedModel ||
             process.env.DEEPSEEK_CHAT_MODEL?.trim() ||
             process.env.DEEPSEEK_MODEL?.trim() ||
             "deepseek-chat",

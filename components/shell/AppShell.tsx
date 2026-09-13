@@ -52,7 +52,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-screen md:flex">
       {/* Mobile top bar */}
-      <header className="md:hidden sticky top-0 z-30 flex h-14 items-center justify-between border-b border-[color:var(--border-subtle)] bg-[var(--surface-panel)] px-4 backdrop-blur-xl">
+      <header className="sticky top-0 z-30 flex h-14 items-center justify-between border-b border-[color:var(--border-subtle)] bg-[var(--surface-panel)] px-4 md:hidden">
         <button
           aria-label="Open menu"
           onClick={() => setOpen(true)}
@@ -109,12 +109,12 @@ export function AppShell({ children }: { children: ReactNode }) {
       </div>
 
       {/* Desktop sidebar */}
-      <div className="hidden md:block md:w-60 md:shrink-0 md:sticky md:top-0 md:h-screen">
+      <div className="hidden md:block md:w-64 md:shrink-0 md:sticky md:top-0 md:h-screen">
         <Sidebar theme={theme} onToggleTheme={toggleTheme} />
       </div>
 
       <main className="flex-1 min-w-0">
-        <div className="mx-auto max-w-[1100px] px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10">
+        <div className="page-width px-4 py-6 sm:px-8 sm:py-8 lg:px-10 lg:py-10">
           {children}
         </div>
       </main>

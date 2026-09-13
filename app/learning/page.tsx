@@ -217,7 +217,7 @@ export default function LearningPage() {
         </div>
       )}
 
-      <div className="surface mb-6 flex flex-col gap-3 p-4 sm:flex-row sm:items-center">
+      <div className="surface mb-6 flex flex-col gap-3 p-4 sm:flex-row sm:flex-wrap sm:items-center">
         <div className="relative flex-1">
           <Search
             size={16}
@@ -233,7 +233,7 @@ export default function LearningPage() {
         <select
           value={categoryFilter}
           onChange={(e) => setCategoryFilter(e.target.value)}
-          className="h-10 rounded-xl border border-white/10 bg-white/[0.03] px-3 text-sm text-zinc-200 focus-ring hover:border-white/20"
+          className="h-10 w-full rounded-lg border border-white/10 bg-white/[0.03] px-3 text-sm text-zinc-200 focus-ring hover:border-white/20 sm:w-auto"
         >
           <option value="all">全部分类</option>
           {categories.map((c) => (
@@ -242,7 +242,7 @@ export default function LearningPage() {
             </option>
           ))}
         </select>
-        <div className="flex gap-1">
+        <div className="flex flex-wrap gap-1">
           {STATUS_FILTERS.map((s) => (
             <button
               key={s.value}
@@ -250,7 +250,7 @@ export default function LearningPage() {
               className={
                 "rounded-lg px-3 py-2 text-xs font-medium transition focus-ring " +
                 (statusFilter === s.value
-                  ? "bg-brand-gradient-soft text-zinc-50 ring-1 ring-fuchsia-400/30"
+                  ? "bg-brand-gradient-soft text-zinc-50 ring-1 ring-teal-400/30"
                   : "text-zinc-400 hover:text-zinc-100")
               }
             >

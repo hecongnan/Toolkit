@@ -18,7 +18,7 @@ export function EmptyState({ icon, title, description, action, className }: Empt
       )}
     >
       {icon && (
-        <div className="grid h-12 w-12 place-items-center rounded-2xl bg-brand-gradient-soft text-fuchsia-200 ring-1 ring-white/10">
+        <div className="grid h-12 w-12 place-items-center rounded-2xl bg-brand-gradient-soft text-teal-200 ring-1 ring-white/10">
           {icon}
         </div>
       )}

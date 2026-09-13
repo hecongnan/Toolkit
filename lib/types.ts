@@ -1,5 +1,6 @@
 export type MaterialStatus = "todo" | "doing" | "done";
 export type AnalysisChatRole = "user" | "assistant";
+export type TodoRepeat = "none" | "daily" | "weekdays" | "weekly";
 
 export interface Material {
   id: string;
@@ -20,7 +21,12 @@ export interface Todo {
   done: boolean;
   priority: 1 | 2 | 3;
   dueDate: string;
+  scheduledTime?: string;
+  repeat: TodoRepeat;
+  seriesId?: string;
+  position: number;
   createdAt: number;
+  updatedAt: number;
 }
 
 export interface AnalysisReport {

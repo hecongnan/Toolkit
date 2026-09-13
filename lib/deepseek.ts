@@ -13,6 +13,7 @@ export interface DeepSeekMessage {
 }
 
 interface StreamDeepSeekOptions {
+  apiKey?: string;
   model: string;
   messages: DeepSeekMessage[];
   signal?: AbortSignal;
@@ -39,13 +40,14 @@ export function getDeepSeekApiKey(): string | null {
 }
 
 export async function streamDeepSeekChat({
+  apiKey: apiKeyOverride,
   model,
   messages,
   signal,
   maxTokens = 8192,
   onDelta,
 }: StreamDeepSeekOptions): Promise<{ usage: unknown; stopReason: string | null }> {
-  const apiKey = getDeepSeekApiKey();
+  const apiKey = apiKeyOverride?.trim() || getDeepSeekApiKey();
   if (!apiKey) {
     throw new Error("服务端缺少 ANTHROPIC_AUTH_TOKEN，请在 .env.local 中配置");
   }

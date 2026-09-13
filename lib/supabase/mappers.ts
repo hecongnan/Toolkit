@@ -5,6 +5,7 @@ import type {
   Material,
   MaterialStatus,
   Todo,
+  TodoRepeat,
 } from "@/lib/types";
 
 export interface MaterialRow {
@@ -26,7 +27,12 @@ export interface TodoRow {
   done: boolean;
   priority: 1 | 2 | 3;
   due_date: string;
+  scheduled_time: string | null;
+  repeat_rule: TodoRepeat;
+  series_id: string | null;
+  position: number;
   created_at: string;
+  updated_at: string;
 }
 
 export interface AnalysisReportRow {
@@ -70,7 +76,12 @@ export function toTodo(row: TodoRow): Todo {
     done: row.done,
     priority: row.priority,
     dueDate: row.due_date,
+    scheduledTime: row.scheduled_time?.slice(0, 5) || undefined,
+    repeat: row.repeat_rule ?? "none",
+    seriesId: row.series_id ?? undefined,
+    position: row.position ?? 0,
     createdAt: new Date(row.created_at).getTime(),
+    updatedAt: new Date(row.updated_at ?? row.created_at).getTime(),
   };
 }
 
@@ -119,7 +130,12 @@ export function fromLocalTodo(todo: Todo, userId: string) {
     done: todo.done,
     priority: todo.priority,
     due_date: todo.dueDate,
+    scheduled_time: todo.scheduledTime ?? null,
+    repeat_rule: todo.repeat ?? "none",
+    series_id: todo.seriesId ?? null,
+    position: todo.position ?? 0,
     created_at: new Date(todo.createdAt).toISOString(),
+    updated_at: new Date(todo.updatedAt ?? todo.createdAt).toISOString(),
   };
 }
 

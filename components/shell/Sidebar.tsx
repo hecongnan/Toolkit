@@ -10,6 +10,7 @@ import {
   Github,
   LogOut,
   Moon,
+  Settings,
   Sparkles,
   Sun,
 } from "lucide-react";
@@ -21,6 +22,7 @@ const NAV = [
   { href: "/learning", label: "学习资料", icon: BookOpen },
   { href: "/todos", label: "Todo", icon: CheckCircle2 },
   { href: "/github", label: "GitHub 分析", icon: Github },
+  { href: "/settings", label: "AI 设置", icon: Settings },
 ] as const;
 
 interface SidebarProps {
@@ -57,13 +59,13 @@ export function Sidebar({ onNavigate, theme = "dark", onToggleTheme }: SidebarPr
   };
 
   return (
-    <aside className="flex h-full w-full flex-col gap-2 border-r border-[color:var(--border-subtle)] bg-[var(--surface-panel)] px-4 py-5 backdrop-blur-2xl">
+    <aside className="flex h-full w-full flex-col gap-2 border-r border-[color:var(--border-subtle)] bg-[var(--surface-panel)] px-4 py-6">
       <Link
         href="/"
         onClick={onNavigate}
-        className="mb-4 flex items-center gap-3 px-2 py-1 focus-ring rounded-lg"
+        className="mb-6 flex items-center gap-3 px-2 py-1 focus-ring rounded-lg"
       >
-        <div className="grid h-9 w-9 place-items-center rounded-xl bg-brand-gradient text-white shadow-glow">
+        <div className="grid h-9 w-9 place-items-center rounded-lg bg-brand-gradient text-white shadow-glow">
           <Sparkles size={18} strokeWidth={2.4} />
         </div>
         <div className="leading-tight">
@@ -72,7 +74,8 @@ export function Sidebar({ onNavigate, theme = "dark", onToggleTheme }: SidebarPr
         </div>
       </Link>
 
-      <nav className="mt-2 flex flex-col gap-1">
+      <div className="section-label mb-1 px-3">工作区</div>
+      <nav className="flex flex-col gap-1">
         {NAV.map(({ href, label, icon: Icon }) => {
           const active =
             href === "/" ? pathname === "/" : pathname?.startsWith(href);
@@ -82,7 +85,7 @@ export function Sidebar({ onNavigate, theme = "dark", onToggleTheme }: SidebarPr
               href={href}
               onClick={onNavigate}
               className={cn(
-                "group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition focus-ring",
+                "group relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition focus-ring",
                 active
                   ? "bg-[var(--control-active)] text-[color:var(--text-primary)]"
                   : "text-[color:var(--text-tertiary)] hover:bg-[var(--control-hover)] hover:text-[color:var(--text-primary)]",
@@ -91,7 +94,7 @@ export function Sidebar({ onNavigate, theme = "dark", onToggleTheme }: SidebarPr
               {active && (
                 <span
                   aria-hidden
-                  className="absolute left-0 top-1/2 h-6 w-[3px] -translate-y-1/2 rounded-r-full bg-brand-gradient"
+                  className="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full bg-teal-400"
                 />
               )}
               <Icon
@@ -99,7 +102,7 @@ export function Sidebar({ onNavigate, theme = "dark", onToggleTheme }: SidebarPr
                 className={cn(
                   "shrink-0 transition",
                   active
-                    ? "text-fuchsia-300"
+                    ? "text-teal-300"
                     : "text-zinc-500 group-hover:text-zinc-300",
                 )}
               />

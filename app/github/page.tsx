@@ -9,6 +9,7 @@ import { HistoryList } from "@/components/github/HistoryList";
 import { RepoForm } from "@/components/github/RepoForm";
 import { ReportView } from "@/components/github/ReportView";
 import { createClient } from "@/lib/supabase/client";
+import { aiRequestHeaders, readAiSettings } from "@/lib/ai-settings";
 import { toAnalysisReport, type AnalysisReportRow } from "@/lib/supabase/mappers";
 import type { AnalysisReport } from "@/lib/types";
 
@@ -115,10 +116,18 @@ function GitHubPageInner() {
       let metaData: MetaPayload | null = null;
 
       try {
+        const aiSettings = readAiSettings();
         const res = await fetch("/api/analyze", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ repoUrl, branch }),
+          headers: {
+            "Content-Type": "application/json",
+            ...aiRequestHeaders(aiSettings),
+          },
+          body: JSON.stringify({
+            repoUrl,
+            branch,
+            aiModel: aiSettings.analysisModel,
+          }),
           signal: controller.signal,
         });
 
@@ -294,7 +303,7 @@ function GitHubPageInner() {
               <div className="surface px-6 py-12 text-center text-sm text-zinc-400">
                 <Github
                   size={28}
-                  className="mx-auto mb-3 text-fuchsia-300/80"
+                  className="mx-auto mb-3 text-teal-300/80"
                   strokeWidth={1.6}
                 />
                 <p className="font-medium text-zinc-200">尚未选择报告</p>

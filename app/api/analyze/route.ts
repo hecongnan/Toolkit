@@ -10,7 +10,10 @@ export const dynamic = "force-dynamic";
 interface AnalyzeBody {
   repoUrl?: string;
   branch?: string;
+  aiModel?: string;
 }
+
+const MODEL_PATTERN = /^[a-zA-Z0-9._:/-]{1,100}$/;
 
 function extractSummary(markdown: string): string {
   for (const raw of markdown.split("\n")) {
@@ -52,11 +55,21 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  if (!getDeepSeekApiKey()) {
+  const userApiKey = req.headers.get("x-deepseek-api-key")?.trim();
+  if (userApiKey && userApiKey.length > 512) {
+    return Response.json({ error: "API Key 格式无效" }, { status: 400 });
+  }
+  const apiKey = userApiKey || getDeepSeekApiKey();
+  if (!apiKey) {
     return Response.json(
-      { error: "服务端缺少 ANTHROPIC_AUTH_TOKEN，请在 .env.local 中配置" },
+      { error: "请先在 AI 设置中填写 DeepSeek API Key" },
       { status: 500 },
     );
+  }
+
+  const requestedModel = body.aiModel?.trim();
+  if (requestedModel && !MODEL_PATTERN.test(requestedModel)) {
+    return Response.json({ error: "分析模型名称格式无效" }, { status: 400 });
   }
 
   const branch = body.branch?.trim() || parsed.branch;
@@ -99,7 +112,8 @@ export async function POST(req: NextRequest) {
         const userPrompt = buildUserPrompt(bundle);
         let fullText = "";
         const { usage, stopReason } = await streamDeepSeekChat({
-          model: process.env.DEEPSEEK_MODEL?.trim() || "deepseek-chat",
+          apiKey,
+          model: requestedModel || process.env.DEEPSEEK_MODEL?.trim() || "deepseek-chat",
           maxTokens: 8192,
           messages: [
             { role: "system", content: ANALYZER_SYSTEM_PROMPT },

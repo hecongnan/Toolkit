@@ -79,7 +79,7 @@ export function ReportView({
       {(meta || status || repoUrl) && (
         <div className="flex flex-col gap-3 border-b border-white/5 bg-white/[0.02] px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex flex-wrap items-center gap-2">
-            {meta?.language && <Tag tone="violet">{meta.language}</Tag>}
+            {meta?.language && <Tag tone="teal">{meta.language}</Tag>}
             {typeof meta?.stars === "number" && (
               <Tag tone="amber">★ {meta.stars.toLocaleString()}</Tag>
             )}
@@ -92,8 +92,8 @@ export function ReportView({
             {status && isStreaming && (
               <span className="inline-flex items-center gap-2 text-xs text-zinc-400">
                 <span className="relative flex h-2 w-2">
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-fuchsia-400/60" />
-                  <span className="relative inline-flex h-2 w-2 rounded-full bg-fuchsia-400" />
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-teal-400/60" />
+                  <span className="relative inline-flex h-2 w-2 rounded-full bg-teal-400" />
                 </span>
                 {status.message}
               </span>
@@ -136,7 +136,7 @@ export function ReportView({
           <article className="report-markdown">
             <ReactMarkdown remarkPlugins={[remarkGfm]}>{markdown}</ReactMarkdown>
             {isStreaming && (
-              <span className="ml-1 inline-block h-4 w-1.5 -mb-0.5 animate-pulse bg-fuchsia-400/80 align-middle" />
+              <span className="ml-1 inline-block h-4 w-1.5 -mb-0.5 animate-pulse bg-teal-400/80 align-middle" />
             )}
           </article>
         ) : (

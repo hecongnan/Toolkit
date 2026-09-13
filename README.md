@@ -66,13 +66,13 @@ npm run start
 | --- | --- | --- |
 | `NEXT_PUBLIC_SUPABASE_URL` | ✅ | Supabase 项目 URL |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | ✅ | Supabase anon public key，配合 RLS 使用 |
-| `ANTHROPIC_BASE_URL` | ✅ | DeepSeek 兼容入口，默认 `https://api.deepseek.com` |
-| `ANTHROPIC_AUTH_TOKEN` | ✅ | DeepSeek API token，仅服务端使用 |
+| `ANTHROPIC_BASE_URL` | ❌ | DeepSeek 兼容入口，默认 `https://api.deepseek.com` |
+| `ANTHROPIC_AUTH_TOKEN` | ❌ | 服务端默认 DeepSeek API token；用户也可在应用内配置自己的 Key |
 | `DEEPSEEK_MODEL` | ❌ | 报告生成模型，默认 `deepseek-chat` |
 | `DEEPSEEK_CHAT_MODEL` | ❌ | 报告追问模型，建议 `deepseek-v4-pro` |
 | `GITHUB_TOKEN` | ❌ | 可选；GitHub Personal Access Token，用于提升 API 限额 |
 
-> DeepSeek token 和 GitHub token 只在服务端使用，不会暴露到客户端 bundle。
+> 服务端 DeepSeek token 和 GitHub token 不会暴露到客户端 bundle。用户在“AI 设置”中填写的 Key 只保存在当前浏览器，并仅随分析请求发送到本站服务端，不会写入 Supabase。
 
 ---
 
@@ -85,6 +85,8 @@ npm run start
    - Site URL：本地 `http://localhost:3000`，生产填 Vercel 域名
    - Redirect URLs：加入本地和生产域名
 5. 把项目 URL 和 anon key 填入 `.env.local` / Vercel Environment Variables。
+
+已有数据库升级到 Todo 2.0 时，在 SQL Editor 执行 `lib/supabase/migrations/20260913_todo_v2.sql`。迁移是幂等的，不会删除现有数据。
 
 ---
 
@@ -124,6 +126,9 @@ npm run start
 ### Todo（`/todos`）
 - 按日期管理（昨天 / 今天 / 明天 + 任意日期）
 - 优先级 P1–P3
+- 支持编辑、计划时间和重复规则（每天 / 工作日 / 每周）
+- 桌面端拖拽排序，移动端使用上下移动按钮
+- 完成重复任务时自动创建下一期，并避免重复生成
 - 当日完成进度条
 - 完成项自动折叠到列表底部
 
@@ -142,6 +147,12 @@ npm run start
 输出报告固定章节：项目概述、技术栈、目录结构、核心模块、阅读建议。
 追问回答会基于当前报告、仓库元信息和最近对话生成；如果报告信息不足，AI 会提示需要进一步查看哪些文件。
 
+### AI 设置（`/settings`）
+
+- 用户可以配置自己的 DeepSeek API Key
+- 可分别设置仓库分析模型和报告追问模型
+- 配置仅保存在当前浏览器；留空时回退到服务端环境变量
+
 ---
 
 ## 目录速览
@@ -155,6 +166,7 @@ app/
   learning/page.tsx    # 学习资料
   todos/page.tsx       # 每日 todo
   github/page.tsx      # GitHub 分析
+  settings/page.tsx    # 用户 AI 配置
   api/analyze/route.ts # 后端 SSE 流式 API
 components/
   auth/                # 登录注册表单

@@ -44,7 +44,9 @@ export function AuthForm({ mode }: AuthFormProps) {
         return;
       }
 
-      router.replace("/");
+      const next = new URLSearchParams(window.location.search).get("next");
+      const safeNext = next && next.startsWith("/") && !next.startsWith("//") ? next : "/";
+      router.replace(safeNext);
       router.refresh();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "操作失败，请稍后再试");
@@ -57,7 +59,7 @@ export function AuthForm({ mode }: AuthFormProps) {
     <main className="grid min-h-screen place-items-center px-4 py-10">
       <div className="w-full max-w-md">
         <div className="mb-6 flex flex-col items-center text-center">
-          <div className="mb-4 grid h-12 w-12 place-items-center rounded-2xl bg-brand-gradient text-white shadow-glow">
+          <div className="mb-4 grid h-12 w-12 place-items-center rounded-xl bg-brand-gradient text-white shadow-glow">
             <Sparkles size={22} strokeWidth={2.4} />
           </div>
           <h1 className="text-2xl font-semibold text-zinc-50">
@@ -116,7 +118,7 @@ export function AuthForm({ mode }: AuthFormProps) {
             {isLogin ? "还没有账号？" : "已有账号？"}
             <Link
               href={isLogin ? "/register" : "/login"}
-              className="ml-1 font-medium text-fuchsia-300 hover:text-fuchsia-200"
+              className="ml-1 font-medium text-teal-300 hover:text-teal-200"
             >
               {isLogin ? "去注册" : "去登录"}
             </Link>

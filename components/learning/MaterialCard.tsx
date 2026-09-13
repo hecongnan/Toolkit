@@ -10,7 +10,7 @@ const STATUS_LABEL: Record<MaterialStatus, string> = {
   doing: "进行中",
   done: "已完成",
 };
-const STATUS_TONE: Record<MaterialStatus, "default" | "violet" | "amber" | "emerald"> = {
+const STATUS_TONE: Record<MaterialStatus, "default" | "teal" | "amber" | "emerald"> = {
   todo: "default",
   doing: "amber",
   done: "emerald",
@@ -69,7 +69,7 @@ export function MaterialCard({ material, onEdit, onDelete, onCycleStatus }: Prop
       </div>
 
       <div className="flex flex-wrap items-center gap-1.5">
-        {material.category && <Tag tone="violet">{material.category}</Tag>}
+        {material.category && <Tag tone="teal">{material.category}</Tag>}
         <Tag tone={PRIORITY_TONE[material.priority]}>
           P{material.priority} · {PRIORITY_LABEL[material.priority]}
         </Tag>
@@ -85,7 +85,7 @@ export function MaterialCard({ material, onEdit, onDelete, onCycleStatus }: Prop
             href={material.url}
             target="_blank"
             rel="noreferrer"
-            className="inline-flex items-center gap-1 text-fuchsia-300 hover:text-fuchsia-200"
+            className="inline-flex items-center gap-1 text-teal-300 hover:text-teal-200"
           >
             打开
             <ExternalLink size={12} />

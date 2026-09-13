@@ -14,21 +14,21 @@ const config: Config = {
       },
       colors: {
         brand: {
-          50: "#fdf4ff",
-          100: "#fae8ff",
-          400: "#c084fc",
-          500: "#a855f7",
-          600: "#9333ea",
+          50: "#ecfeff",
+          100: "#cffafe",
+          400: "#2dd4bf",
+          500: "#0f9f95",
+          600: "#0f766e",
         },
       },
       backgroundImage: {
         "brand-gradient":
-          "linear-gradient(135deg, #8b5cf6 0%, #d946ef 50%, #fb7185 100%)",
+          "linear-gradient(135deg, #0f766e 0%, #0f9f95 58%, #f59e0b 100%)",
         "brand-gradient-soft":
-          "linear-gradient(135deg, rgba(139,92,246,0.18), rgba(217,70,239,0.18) 50%, rgba(251,113,133,0.18))",
+          "linear-gradient(135deg, rgba(15,118,110,0.18), rgba(20,184,166,0.14) 58%, rgba(245,158,11,0.12))",
       },
       boxShadow: {
-        glow: "0 0 0 1px rgba(168,85,247,0.25), 0 8px 30px -12px rgba(217,70,239,0.45)",
+        glow: "0 0 0 1px rgba(20,184,166,0.3), 0 8px 26px -14px rgba(15,118,110,0.48)",
       },
       animation: {
         "fade-in": "fadeIn 200ms ease-out",

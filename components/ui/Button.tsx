@@ -11,7 +11,7 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 
 const variantClasses: Record<Variant, string> = {
   primary:
-    "bg-brand-gradient text-white shadow-glow hover:brightness-110 active:brightness-95",
+    "bg-brand-gradient text-white shadow-glow hover:brightness-105 active:brightness-95",
   secondary:
     "border border-[color:var(--border-default)] bg-[var(--control-bg)] text-[color:var(--text-primary)] hover:bg-[var(--control-hover)]",
   ghost:
@@ -22,8 +22,8 @@ const variantClasses: Record<Variant, string> = {
 
 const sizeClasses: Record<Size, string> = {
   sm: "h-8 px-3 text-xs rounded-lg gap-1.5",
-  md: "h-10 px-4 text-sm rounded-xl gap-2",
-  lg: "h-12 px-6 text-base rounded-xl gap-2",
+  md: "h-10 px-4 text-sm rounded-lg gap-2",
+  lg: "h-12 px-6 text-base rounded-lg gap-2",
 };
 
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(

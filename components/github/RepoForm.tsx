@@ -25,7 +25,7 @@ export function RepoForm({ loading, onSubmit, onCancel }: Props) {
   return (
     <form onSubmit={submit} className="surface-strong p-5">
       <div className="mb-4 flex items-center gap-2 text-sm text-zinc-400">
-        <Github size={16} className="text-fuchsia-300" />
+        <Github size={16} className="text-teal-300" />
         粘贴一个 GitHub 仓库地址，AI 将自动获取并生成分析报告
       </div>
       <div className="grid gap-3 sm:grid-cols-[1fr_auto_auto]">

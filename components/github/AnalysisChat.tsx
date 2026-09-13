@@ -8,6 +8,7 @@ import { Spinner } from "@/components/ui/Spinner";
 import { Textarea } from "@/components/ui/Textarea";
 import { cn } from "@/lib/cn";
 import { createClient } from "@/lib/supabase/client";
+import { aiRequestHeaders, readAiSettings } from "@/lib/ai-settings";
 import {
   toAnalysisChatMessage,
   type AnalysisChatRow,
@@ -115,10 +116,18 @@ export function AnalysisChat({ report, variant = "card" }: Props) {
     setMessages((prev) => [...prev, optimisticUser, optimisticAssistant]);
 
     try {
+      const aiSettings = readAiSettings();
       const res = await fetch("/api/analyze/chat", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reportId, message: content }),
+        headers: {
+          "Content-Type": "application/json",
+          ...aiRequestHeaders(aiSettings),
+        },
+        body: JSON.stringify({
+          reportId,
+          message: content,
+          aiModel: aiSettings.chatModel,
+        }),
         signal: controller.signal,
       });
 
@@ -232,7 +241,7 @@ export function AnalysisChat({ report, variant = "card" }: Props) {
         )}
       >
         <div className="rounded-2xl border border-dashed border-[color:var(--border-default)] bg-[var(--control-bg)] px-4 py-8 text-center">
-          <div className="mx-auto mb-3 grid h-10 w-10 place-items-center rounded-full bg-fuchsia-500/15 text-fuchsia-300">
+          <div className="mx-auto mb-3 grid h-10 w-10 place-items-center rounded-full bg-teal-500/15 text-teal-300">
             <Bot size={18} />
           </div>
           <p className="text-sm font-semibold text-[color:var(--text-primary)]">先选择一份报告</p>
@@ -285,7 +294,7 @@ export function AnalysisChat({ report, variant = "card" }: Props) {
                 className={cn("flex gap-3", isUser ? "justify-end" : "justify-start")}
               >
                 {!isUser && (
-                  <div className="mt-1 grid h-8 w-8 shrink-0 place-items-center rounded-full bg-fuchsia-500/15 text-fuchsia-200">
+                  <div className="mt-1 grid h-8 w-8 shrink-0 place-items-center rounded-full bg-teal-500/15 text-teal-200">
                     <Bot size={15} />
                   </div>
                 )}
@@ -293,7 +302,7 @@ export function AnalysisChat({ report, variant = "card" }: Props) {
                   className={cn(
                     "max-w-[86%] rounded-2xl px-4 py-3 text-sm leading-6",
                     isUser
-                      ? "bg-fuchsia-500/20 text-zinc-50"
+                      ? "bg-teal-500/20 text-zinc-50"
                       : "border border-[color:var(--border-default)] bg-[var(--control-bg)] text-[color:var(--text-secondary)]",
                   )}
                 >

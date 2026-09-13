@@ -5,64 +5,60 @@
 @layer base {
   :root {
     color-scheme: dark;
-    --app-bg: #09090b;
-    --app-text: #f4f4f5;
-    --body-glow-primary: rgba(168, 85, 247, 0.12);
-    --body-glow-secondary: rgba(244, 114, 182, 0.08);
-    --surface: rgba(255, 255, 255, 0.02);
-    --surface-strong: rgba(24, 24, 27, 0.6);
-    --surface-panel: rgba(9, 9, 11, 0.9);
-    --surface-header: rgba(255, 255, 255, 0.02);
-    --control-bg: rgba(255, 255, 255, 0.03);
-    --control-hover: rgba(255, 255, 255, 0.08);
-    --control-active: rgba(255, 255, 255, 0.06);
-    --border-subtle: rgba(255, 255, 255, 0.05);
-    --border-default: rgba(255, 255, 255, 0.1);
-    --border-hover: rgba(255, 255, 255, 0.2);
-    --text-primary: #f4f4f5;
-    --text-secondary: #d4d4d8;
-    --text-tertiary: #a1a1aa;
-    --text-muted: #71717a;
-    --text-faint: #52525b;
-    --ring-offset: #09090b;
-    --scrollbar-thumb: rgba(255, 255, 255, 0.06);
-    --scrollbar-thumb-hover: rgba(255, 255, 255, 0.12);
-    --markdown-text: #e4e4e7;
-    --markdown-muted: #d4d4d8;
-    --markdown-faint: #a1a1aa;
-    --markdown-code-bg: rgba(255, 255, 255, 0.05);
-    --markdown-pre-bg: rgba(0, 0, 0, 0.4);
+    --app-bg: #111619;
+    --app-text: #edf4f3;
+    --surface: #172022;
+    --surface-strong: #1b2829;
+    --surface-panel: #101719;
+    --surface-header: #1a2527;
+    --control-bg: #1b282a;
+    --control-hover: #243537;
+    --control-active: #203133;
+    --border-subtle: rgba(218, 244, 240, 0.08);
+    --border-default: rgba(218, 244, 240, 0.14);
+    --border-hover: rgba(45, 212, 191, 0.55);
+    --text-primary: #edf4f3;
+    --text-secondary: #c7d7d5;
+    --text-tertiary: #9aafac;
+    --text-muted: #748986;
+    --text-faint: #50625f;
+    --ring-offset: #111619;
+    --scrollbar-thumb: rgba(218, 244, 240, 0.14);
+    --scrollbar-thumb-hover: rgba(218, 244, 240, 0.24);
+    --markdown-text: #e4efed;
+    --markdown-muted: #c7d7d5;
+    --markdown-faint: #8fa5a1;
+    --markdown-code-bg: rgba(45, 212, 191, 0.12);
+    --markdown-pre-bg: #0c1112;
   }
 
   :root[data-theme="light"] {
     color-scheme: light;
-    --app-bg: #f8f7fb;
-    --app-text: #18181b;
-    --body-glow-primary: rgba(168, 85, 247, 0.14);
-    --body-glow-secondary: rgba(244, 114, 182, 0.1);
-    --surface: rgba(255, 255, 255, 0.62);
-    --surface-strong: rgba(255, 255, 255, 0.78);
-    --surface-panel: rgba(255, 255, 255, 0.92);
-    --surface-header: rgba(255, 255, 255, 0.5);
-    --control-bg: rgba(255, 255, 255, 0.68);
-    --control-hover: rgba(168, 85, 247, 0.08);
-    --control-active: rgba(168, 85, 247, 0.1);
-    --border-subtle: rgba(39, 39, 42, 0.08);
-    --border-default: rgba(39, 39, 42, 0.12);
-    --border-hover: rgba(168, 85, 247, 0.28);
-    --text-primary: #18181b;
-    --text-secondary: #3f3f46;
-    --text-tertiary: #52525b;
-    --text-muted: #71717a;
-    --text-faint: #a1a1aa;
-    --ring-offset: #f8f7fb;
-    --scrollbar-thumb: rgba(39, 39, 42, 0.12);
-    --scrollbar-thumb-hover: rgba(39, 39, 42, 0.2);
-    --markdown-text: #27272a;
-    --markdown-muted: #3f3f46;
-    --markdown-faint: #71717a;
-    --markdown-code-bg: rgba(168, 85, 247, 0.1);
-    --markdown-pre-bg: rgba(255, 255, 255, 0.76);
+    --app-bg: #f3f6f5;
+    --app-text: #152221;
+    --surface: #ffffff;
+    --surface-strong: #ffffff;
+    --surface-panel: #f8fbfa;
+    --surface-header: #f5f9f8;
+    --control-bg: #f4f8f7;
+    --control-hover: #e8f1ef;
+    --control-active: #e2eeeb;
+    --border-subtle: rgba(21, 58, 54, 0.1);
+    --border-default: rgba(21, 58, 54, 0.16);
+    --border-hover: rgba(15, 118, 110, 0.46);
+    --text-primary: #152221;
+    --text-secondary: #304440;
+    --text-tertiary: #526a65;
+    --text-muted: #6c817c;
+    --text-faint: #9cafaa;
+    --ring-offset: #f3f6f5;
+    --scrollbar-thumb: rgba(21, 58, 54, 0.16);
+    --scrollbar-thumb-hover: rgba(21, 58, 54, 0.26);
+    --markdown-text: #203531;
+    --markdown-muted: #3f5752;
+    --markdown-faint: #70827e;
+    --markdown-code-bg: rgba(15, 118, 110, 0.1);
+    --markdown-pre-bg: #f8fbfa;
   }
 
   html,
@@ -72,12 +68,7 @@
     @apply antialiased;
   }
 
-  body {
-    background-image:
-      radial-gradient(1200px 600px at 80% -10%, var(--body-glow-primary), transparent 60%),
-      radial-gradient(800px 500px at -10% 110%, var(--body-glow-secondary), transparent 65%);
-    background-attachment: fixed;
-  }
+  body { min-height: 100vh; }
 
   ::-webkit-scrollbar {
     width: 10px;
@@ -95,7 +86,7 @@
   }
 
   ::selection {
-    background: rgba(217, 70, 239, 0.35);
+    background: rgba(20, 184, 166, 0.35);
     color: #fff;
   }
 }
@@ -104,13 +95,13 @@
   .surface {
     border-color: var(--border-subtle);
     background: var(--surface);
-    @apply rounded-2xl border backdrop-blur-xl;
+    @apply rounded-xl border;
   }
 
   .surface-strong {
     border-color: var(--border-default);
     background: var(--surface-strong);
-    @apply rounded-2xl border backdrop-blur-xl;
+    @apply rounded-xl border;
   }
 
   .text-gradient {
@@ -118,11 +109,21 @@
   }
 
   .focus-ring {
-    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fuchsia-400/50 focus-visible:ring-offset-2;
+    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-400/50 focus-visible:ring-offset-2;
   }
 
   .focus-ring:focus-visible {
     --tw-ring-offset-color: var(--ring-offset);
+  }
+
+  .page-width {
+    width: min(100%, 1220px);
+    margin-inline: auto;
+  }
+
+  .section-label {
+    color: var(--text-muted);
+    @apply text-[11px] font-semibold uppercase tracking-[0.16em];
   }
 }
 
@@ -151,20 +152,20 @@
   @apply my-3 pl-6 space-y-1.5;
 }
 .report-markdown ul {
-  @apply list-disc marker:text-fuchsia-400/70;
+  @apply list-disc marker:text-teal-400/70;
 }
 .report-markdown ol {
-  @apply list-decimal marker:text-fuchsia-400/70;
+  @apply list-decimal marker:text-teal-400/70;
 }
 .report-markdown li::marker {
   @apply font-semibold;
 }
 .report-markdown a {
-  @apply text-fuchsia-500 hover:text-fuchsia-400 underline underline-offset-2;
+  @apply text-teal-500 hover:text-teal-400 underline underline-offset-2;
 }
 .report-markdown code {
   background: var(--markdown-code-bg);
-  @apply rounded px-1.5 py-0.5 text-[0.85em] font-mono text-fuchsia-300;
+  @apply rounded px-1.5 py-0.5 text-[0.85em] font-mono text-teal-300;
 }
 .report-markdown pre {
   border-color: var(--border-subtle);
@@ -177,7 +178,7 @@
 }
 .report-markdown blockquote {
   color: var(--markdown-faint);
-  @apply my-4 border-l-2 border-fuchsia-400/50 pl-4 italic;
+  @apply my-4 border-l-2 border-teal-400/50 pl-4 italic;
 }
 .report-markdown table {
   @apply my-4 w-full border-collapse text-sm;

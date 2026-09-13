@@ -5,6 +5,7 @@ import {
   ArrowRight,
   BookOpen,
   CheckCircle2,
+  Clock3,
   Database,
   Github,
   Sparkles,
@@ -90,6 +91,7 @@ export default function DashboardPage() {
           .from("todos")
           .select("*")
           .eq("due_date", today)
+          .order("position", { ascending: true })
           .order("created_at", { ascending: true }),
         supabase
           .from("materials")
@@ -173,7 +175,9 @@ export default function DashboardPage() {
 
   const inProgressMaterials = materials.filter((m) => m.status !== "done").length;
   const recentReports = reports.slice(0, 3);
-  const previewTodos = todaysTodos.slice(0, 5);
+  const previewTodos = [...todaysTodos]
+    .sort((a, b) => Number(a.done) - Number(b.done) || a.position - b.position)
+    .slice(0, 5);
 
   return (
     <>
@@ -191,10 +195,10 @@ export default function DashboardPage() {
       )}
 
       {legacyCounts && (
-        <Card className="mb-6 border-fuchsia-400/30 bg-fuchsia-500/5">
+        <Card className="mb-6 border-teal-400/30 bg-teal-500/5">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex gap-3">
-              <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-brand-gradient-soft text-fuchsia-200">
+              <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-brand-gradient-soft text-teal-200">
                 <Database size={18} />
               </div>
               <div>
@@ -260,7 +264,7 @@ export default function DashboardPage() {
             <Card className="!p-0 overflow-hidden">
               <div className="flex items-center justify-between gap-3 border-b border-white/5 px-5 py-4">
                 <div className="flex items-center gap-2 text-sm font-semibold text-zinc-100">
-                  <Sparkles size={16} className="text-fuchsia-300" />
+                  <Sparkles size={16} className="text-teal-300" />
                   今日待办
                 </div>
                 <Link
@@ -285,7 +289,7 @@ export default function DashboardPage() {
                       <span
                         className={
                           t.done
-                            ? "h-4 w-4 shrink-0 rounded-full border border-fuchsia-400/50 bg-brand-gradient"
+                            ? "h-4 w-4 shrink-0 rounded-full border border-teal-400/50 bg-brand-gradient"
                             : "h-4 w-4 shrink-0 rounded-full border border-white/15"
                         }
                       />
@@ -298,6 +302,12 @@ export default function DashboardPage() {
                       >
                         {t.text}
                       </span>
+                      {t.scheduledTime && (
+                        <span className="hidden items-center gap-1 text-[11px] text-zinc-500 sm:inline-flex">
+                          <Clock3 size={12} />
+                          {t.scheduledTime}
+                        </span>
+                      )}
                       {t.priority === 1 && <Tag tone="rose">高</Tag>}
                     </li>
                   ))}
@@ -308,7 +318,7 @@ export default function DashboardPage() {
             <Card className="!p-0 overflow-hidden">
               <div className="flex items-center justify-between gap-3 border-b border-white/5 px-5 py-4">
                 <div className="flex items-center gap-2 text-sm font-semibold text-zinc-100">
-                  <TrendingUp size={16} className="text-fuchsia-300" />
+                  <TrendingUp size={16} className="text-teal-300" />
                   最近分析
                 </div>
                 <Link
@@ -369,7 +379,7 @@ function StatCard({
     <Link href={href} className="group block focus-ring rounded-2xl">
       <Card className="h-full group-hover:-translate-y-0.5">
         <div className="mb-4 flex items-center justify-between">
-          <div className="grid h-10 w-10 place-items-center rounded-xl bg-white/[0.04] text-fuchsia-300 ring-1 ring-white/10">
+          <div className="grid h-10 w-10 place-items-center rounded-xl bg-white/[0.04] text-teal-300 ring-1 ring-white/10">
             {icon}
           </div>
           <ArrowRight size={16} className="text-zinc-600 transition group-hover:translate-x-0.5 group-hover:text-zinc-300" />

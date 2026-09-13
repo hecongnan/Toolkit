@@ -73,7 +73,7 @@ export function DateNav({ value, onChange }: Props) {
           type="date"
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          className="h-9 rounded-lg border border-white/10 bg-white/[0.03] pl-9 pr-3 text-xs text-zinc-200 focus-ring hover:border-white/20 [color-scheme:dark]"
+          className="h-9 rounded-lg border border-white/10 bg-white/[0.03] pl-9 pr-3 text-xs text-zinc-200 focus-ring hover:border-white/20"
         />
       </label>
     </div>

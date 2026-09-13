@@ -120,7 +120,7 @@ export function MaterialForm({ initial, onSubmit, onCancel }: Props) {
                 className={
                   "flex-1 rounded-lg border px-3 py-2 text-xs font-medium transition focus-ring " +
                   (status === opt.value
-                    ? "border-fuchsia-400/50 bg-brand-gradient-soft text-zinc-50"
+                    ? "border-teal-400/50 bg-brand-gradient-soft text-zinc-50"
                     : "border-white/10 bg-white/[0.03] text-zinc-400 hover:text-zinc-100")
                 }
               >
@@ -139,7 +139,7 @@ export function MaterialForm({ initial, onSubmit, onCancel }: Props) {
                 className={
                   "flex-1 rounded-lg border px-3 py-2 text-xs font-medium transition focus-ring " +
                   (priority === p
-                    ? "border-fuchsia-400/50 bg-brand-gradient-soft text-zinc-50"
+                    ? "border-teal-400/50 bg-brand-gradient-soft text-zinc-50"
                     : "border-white/10 bg-white/[0.03] text-zinc-400 hover:text-zinc-100")
                 }
               >

@@ -9,18 +9,18 @@ interface PageHeaderProps {
 
 export function PageHeader({ title, description, action, eyebrow }: PageHeaderProps) {
   return (
-    <div className="mb-7 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+    <div className="mb-8 flex flex-col gap-4 border-b border-[color:var(--border-subtle)] pb-6 sm:flex-row sm:items-end sm:justify-between">
       <div>
         {eyebrow && (
-          <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-fuchsia-300/80">
+          <p className="section-label mb-1.5">
             {eyebrow}
           </p>
         )}
-        <h1 className="text-2xl font-semibold tracking-tight text-zinc-50 sm:text-3xl">
+        <h1 className="text-2xl font-semibold tracking-tight text-[color:var(--text-primary)] sm:text-3xl">
           {title}
         </h1>
         {description && (
-          <p className="mt-1.5 max-w-2xl text-sm text-zinc-400">{description}</p>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-[color:var(--text-muted)]">{description}</p>
         )}
       </div>
       {action && <div className="shrink-0">{action}</div>}
