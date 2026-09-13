@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
+import { readRuntimeEnv } from "@/lib/env";
 
 const PROTECTED_ROUTES = ["/", "/learning", "/todos", "/github", "/settings"];
 const AUTH_ROUTES = ["/login", "/register"];
@@ -7,8 +8,8 @@ const AUTH_ROUTES = ["/login", "/register"];
 export async function middleware(request: NextRequest) {
   let response = NextResponse.next({ request });
   const pathname = request.nextUrl.pathname;
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const url = readRuntimeEnv("NEXT_PUBLIC_SUPABASE_URL");
+  const anonKey = readRuntimeEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY");
 
   if (!url || !anonKey) return response;
 
