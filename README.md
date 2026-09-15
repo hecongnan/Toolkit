@@ -82,31 +82,26 @@ npm run start
 2. 打开 SQL Editor，执行 `lib/supabase/schema.sql`。
 3. Authentication → Providers 中启用 Email。
 4. 如果开启邮箱确认，在 Authentication → URL Configuration 配置：
-   - Site URL：本地 `http://localhost:3000`，生产填 Vercel 域名
-   - Redirect URLs：加入本地和生产域名
-5. 把项目 URL 和 anon key 填入 `.env.local` / Vercel Environment Variables。
+   - Site URL：本地 `http://localhost:3000`，生产填 EdgeOne 正式域名
+   - Redirect URLs：加入本地地址和 EdgeOne 正式域名
+5. 把项目 URL 和 anon key 填入 `.env.local` / EdgeOne Environment Variables。
 
 已有数据库升级到 Todo 2.0 时，在 SQL Editor 执行 `lib/supabase/migrations/20260913_todo_v2.sql`。迁移是幂等的，不会删除现有数据。
 
 ---
 
-## Vercel 部署
+## EdgeOne Pages 部署
 
 1. 将项目推送到 GitHub。
-2. 在 Vercel 导入该 GitHub 仓库。
-3. 在 Vercel 配置环境变量：
+2. 在 EdgeOne Pages 导入该 GitHub 仓库，生产分支选择 `main`。
+3. 使用仓库内的 `edgeone.json`：安装命令 `npm ci`，构建命令 `npm run build`，输出目录 `.next`，Node.js `20.18.0`。
+4. 在 EdgeOne 配置环境变量：
    - `NEXT_PUBLIC_SUPABASE_URL`
    - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-   - `ANTHROPIC_BASE_URL=https://api.deepseek.com`
-   - `ANTHROPIC_AUTH_TOKEN`
-   - `DEEPSEEK_MODEL=deepseek-chat`
-   - `DEEPSEEK_CHAT_MODEL=deepseek-v4-pro`
    - `GITHUB_TOKEN`（可选）
-4. 部署完成后，手机直接访问 Vercel 域名即可长期使用。
+5. 部署完成后，将 EdgeOne 正式域名加入 Supabase 的 `Site URL` 和 `Redirect URLs`。
 
-## CloudBase Run 部署
-
-项目包含可直接用于 CloudBase Run 的多阶段 `Dockerfile`、standalone 构建配置和健康检查接口。完整步骤见 [`docs/cloudbase-run.md`](docs/cloudbase-run.md)。
+EdgeOne 会自动使用 OpenNext 适配器保留 SSR、Middleware 和 API Route，不要改成 `output: "export"`。完整步骤见 [`docs/edgeone-pages.md`](docs/edgeone-pages.md)。
 
 ---
 
@@ -197,7 +192,7 @@ middleware.ts          # 登录态保护
 A: 匿名 GitHub API 每小时只有 60 次请求。在 `.env.local` 添加 `GITHUB_TOKEN` 可提升限额。
 
 **Q: GitHub 分析提示 401 / Invalid API key？**
-A: 检查 `ANTHROPIC_AUTH_TOKEN` 是否是有效 DeepSeek API token，并确认 Vercel 环境变量也配置了同一个值。
+A: 在应用的“AI 设置”中填写有效的 DeepSeek API Key；该 Key 只保存在当前浏览器。
 
 **Q: 页面提示 Supabase 环境变量缺失？**
 A: 检查 `.env.local` 是否包含 `NEXT_PUBLIC_SUPABASE_URL` 和 `NEXT_PUBLIC_SUPABASE_ANON_KEY`，修改后需要重启 dev server。

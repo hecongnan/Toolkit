@@ -1,0 +1,10 @@
+{
+  "$schema": "https://cdnstatic.tencentcs.com/edgeone/pages/docs/edgeone.schema.json",
+  "buildCommand": "npm run build",
+  "installCommand": "npm ci",
+  "outputDirectory": ".next",
+  "nodeVersion": "20.18.0",
+  "cloudFunctions": {
+    "maxDuration": 120
+  }
+}

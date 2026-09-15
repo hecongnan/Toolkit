@@ -1,6 +1,7 @@
 .git
 .github
 .next
+.edgeone
 node_modules
 out
 dist
