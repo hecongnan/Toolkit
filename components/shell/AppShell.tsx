@@ -3,18 +3,59 @@
 import { Menu, Moon, Sparkles, Sun, X } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { Sidebar } from "./Sidebar";
 import { cn } from "@/lib/cn";
+import { createClient } from "@/lib/supabase/client";
 
 const AUTH_ROUTES = ["/login", "/register"];
+const PROTECTED_ROUTES = ["/", "/learning", "/todos", "/github", "/settings"];
 type Theme = "dark" | "light";
 
 export function AppShell({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false);
   const [theme, setTheme] = useState<Theme>("dark");
+  const [authReady, setAuthReady] = useState(false);
   const pathname = usePathname();
+  const router = useRouter();
 
   const isAuthRoute = AUTH_ROUTES.some((route) => pathname?.startsWith(route));
+  const isProtectedRoute = PROTECTED_ROUTES.some((route) =>
+    route === "/" ? pathname === "/" : pathname?.startsWith(route),
+  );
+
+  // EdgeOne Pages can run Next.js API routes, but its middleware runtime can
+  // terminate the request before a response is produced. Keep route protection
+  // in the browser while API routes continue to validate the Supabase cookie.
+  useEffect(() => {
+    let active = true;
+    setAuthReady(false);
+
+    try {
+      const supabase = createClient();
+      supabase.auth.getUser().then(({ data: { user } }) => {
+        if (!active) return;
+        if (!user && isProtectedRoute) {
+          const next = pathname && pathname !== "/" ? `?next=${encodeURIComponent(pathname)}` : "";
+          router.replace(`/login${next}`);
+          return;
+        }
+        if (user && isAuthRoute) {
+          router.replace("/");
+          return;
+        }
+        setAuthReady(true);
+      }).catch(() => {
+        if (active) setAuthReady(true);
+      });
+    } catch {
+      setAuthReady(true);
+    }
+
+    return () => {
+      active = false;
+    };
+  }, [isAuthRoute, isProtectedRoute, pathname, router]);
 
   useEffect(() => {
     const saved = window.localStorage.getItem("toolkit-theme");
@@ -47,6 +88,14 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   if (isAuthRoute) {
     return <>{children}</>;
+  }
+
+  if (isProtectedRoute && !authReady) {
+    return (
+      <div className="grid min-h-screen place-items-center bg-[var(--surface-page)] text-sm text-[color:var(--text-muted)]">
+        正在检查登录状态...
+      </div>
+    );
   }
 
   return (

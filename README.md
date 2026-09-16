@@ -181,7 +181,7 @@ lib/
   supabase/            # Supabase client/server/schema/mappers
   types.ts             # 共享类型
   cn.ts                # className 工具
-middleware.ts          # 登录态保护
+components/shell/AppShell.tsx # 客户端登录态保护（EdgeOne 兼容）
 ```
 
 ---

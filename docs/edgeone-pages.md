@@ -1,6 +1,6 @@
 # EdgeOne Pages 部署
 
-本项目通过 EdgeOne 的 OpenNext 适配器部署，保留 Next.js SSR、Middleware 和 API Route。不要将项目改为纯静态导出，也不要把输出目录设置为 `out`。
+本项目通过 EdgeOne 的 OpenNext 适配器部署，保留 Next.js SSR 和 API Route。为兼容 EdgeOne 全球函数运行时，项目不使用 Next.js Middleware；页面登录保护在客户端完成，API Route 仍会在服务端校验 Supabase 登录 cookie。不要将项目改为纯静态导出，也不要把输出目录设置为 `out`。
 
 ## 1. 导入仓库
 
@@ -18,7 +18,7 @@
 Node.js: 20.18.0
 ```
 
-EdgeOne 会自动启用 `@edgeone/opennextjs-pages`，将动态页面、Middleware 和 `/api/*` 路由转换为平台函数。项目中的 `Dockerfile` 仅供容器平台使用，EdgeOne 不需要 Dockerfile、服务端口或健康检查配置。
+EdgeOne 会自动启用 `@edgeone/opennextjs-pages`，将动态页面和 `/api/*` 路由转换为平台函数。项目中的 `Dockerfile` 仅供容器平台使用，EdgeOne 不需要 Dockerfile、服务端口或健康检查配置。
 
 ## 2. 环境变量
 
