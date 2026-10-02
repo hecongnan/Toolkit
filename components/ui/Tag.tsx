@@ -9,12 +9,12 @@ interface TagProps extends HTMLAttributes<HTMLSpanElement> {
 }
 
 const toneClasses: Record<Tone, string> = {
-  default: "border-white/10 bg-white/[0.04] text-zinc-300",
-  teal: "border-teal-400/30 bg-teal-500/10 text-teal-200 [html[data-theme=light]_&]:text-teal-800",
-  emerald: "border-emerald-400/30 bg-emerald-500/10 text-emerald-200 [html[data-theme=light]_&]:text-emerald-800",
-  amber: "border-amber-400/30 bg-amber-500/10 text-amber-200 [html[data-theme=light]_&]:text-amber-800",
-  rose: "border-rose-400/30 bg-rose-500/10 text-rose-200 [html[data-theme=light]_&]:text-rose-800",
-  sky: "border-sky-400/30 bg-sky-500/10 text-sky-200 [html[data-theme=light]_&]:text-sky-800",
+  default: "border-transparent bg-[var(--control-bg)] text-[color:var(--text-secondary)]",
+  teal: "border-transparent bg-[var(--accent-soft)] text-[color:var(--accent)]",
+  emerald: "border-transparent bg-emerald-500/10 text-[color:var(--success)]",
+  amber: "border-transparent bg-amber-500/10 text-[color:var(--warning)]",
+  rose: "border-transparent bg-rose-500/10 text-[color:var(--danger)]",
+  sky: "border-transparent bg-[var(--accent-soft)] text-[color:var(--accent)]",
 };
 
 export function Tag({ tone = "default", className, children, ...rest }: TagProps) {

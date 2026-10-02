@@ -1,7 +1,7 @@
 "use client";
 
 import { BookOpen, Plus, Search } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PageHeader } from "@/components/shell/PageHeader";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -27,17 +27,32 @@ const STATUS_CYCLE: Record<MaterialStatus, MaterialStatus> = {
   done: "todo",
 };
 
+function materialError(error: unknown, fallback: string): string {
+  if (error && typeof error === "object" && "message" in error && typeof error.message === "string" && error.message.trim()) return error.message;
+  return fallback;
+}
+
 export default function LearningPage() {
   const [materials, setMaterials] = useState<Material[]>([]);
   const [userId, setUserId] = useState<string | null>(null);
   const [editing, setEditing] = useState<Material | null>(null);
   const [open, setOpen] = useState(false);
+  const [formSession, setFormSession] = useState(0);
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<MaterialStatus | "all">("all");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
+
+  const openForm = (material: Material | null) => {
+    setError(null);
+    setEditing(material);
+    setFormSession((session) => session + 1);
+    setOpen(true);
+  };
 
   const loadMaterials = useCallback(async () => {
     setLoading(true);
@@ -60,7 +75,7 @@ export default function LearningPage() {
       if (queryError) throw queryError;
       setMaterials(((data ?? []) as MaterialRow[]).map(toMaterial));
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "加载学习资料失败");
+      setError(materialError(err, "加载学习资料失败"));
       setLoadFailed(true);
     } finally {
       setLoading(false);
@@ -108,7 +123,9 @@ export default function LearningPage() {
   }, [materials, query, statusFilter, categoryFilter]);
 
   const upsert = async (m: Material) => {
-    if (!userId) return;
+    if (!userId || savingRef.current) return;
+    savingRef.current = true;
+    setSaving(true);
     setError(null);
     try {
       const supabase = createClient();
@@ -150,7 +167,10 @@ export default function LearningPage() {
       setOpen(false);
       setEditing(null);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "保存学习资料失败");
+      setError(materialError(err, "保存学习资料失败"));
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
     }
   };
 
@@ -166,7 +186,7 @@ export default function LearningPage() {
       if (deleteError) throw deleteError;
       setMaterials((prev) => prev.filter((m) => m.id !== id));
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "删除学习资料失败");
+      setError(materialError(err, "删除学习资料失败"));
     }
   };
 
@@ -189,7 +209,7 @@ export default function LearningPage() {
         .eq("id", id);
       if (updateError) throw updateError;
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "更新状态失败");
+      setError(materialError(err, "更新状态失败"));
       await loadMaterials();
     }
   };
@@ -197,16 +217,14 @@ export default function LearningPage() {
   return (
     <>
       <PageHeader
-        eyebrow="Learning"
+        eyebrow="持续积累"
         title="学习资料"
-        description="收藏、整理、追踪你的学习清单。状态、分类、标签随心组合。"
+        description="让值得学习的内容，有一个随时找得到的位置。"
         action={
           <Button
             variant="primary"
-            onClick={() => {
-              setEditing(null);
-              setOpen(true);
-            }}
+            disabled={loading || loadFailed || saving}
+            onClick={() => openForm(null)}
           >
             <Plus size={16} />
             添加资料
@@ -231,13 +249,15 @@ export default function LearningPage() {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="搜索标题、标签、备注..."
+            aria-label="搜索学习资料"
             className="pl-9"
           />
         </div>
         <select
           value={categoryFilter}
+          aria-label="资料分类"
           onChange={(e) => setCategoryFilter(e.target.value)}
-          className="h-10 w-full rounded-lg border border-white/10 bg-white/[0.03] px-3 text-sm text-zinc-200 focus-ring hover:border-white/20 sm:w-auto"
+          className="field-control min-h-11 w-full px-3 text-sm focus-ring sm:w-auto"
         >
           <option value="all">全部分类</option>
           {categories.map((c) => (
@@ -246,16 +266,17 @@ export default function LearningPage() {
             </option>
           ))}
         </select>
-        <div className="flex flex-wrap gap-1">
+        <div role="group" aria-label="学习状态筛选" className="flex flex-wrap gap-1 rounded-xl bg-[var(--control-bg)] p-1">
           {STATUS_FILTERS.map((s) => (
             <button
               key={s.value}
               onClick={() => setStatusFilter(s.value)}
+              aria-pressed={statusFilter === s.value}
               className={
-                "rounded-lg px-3 py-2 text-xs font-medium transition focus-ring " +
+                "button min-h-11 rounded-lg px-3 text-xs font-medium focus-ring " +
                 (statusFilter === s.value
-                  ? "bg-brand-gradient-soft text-zinc-50 ring-1 ring-teal-400/30"
-                  : "text-zinc-400 hover:text-zinc-100")
+                  ? "bg-[var(--surface)] text-[color:var(--accent)] shadow-sm"
+                  : "button-ghost")
               }
             >
               {s.label}
@@ -276,10 +297,7 @@ export default function LearningPage() {
           action={
             <Button
               variant="primary"
-              onClick={() => {
-                setEditing(null);
-                setOpen(true);
-              }}
+              onClick={() => openForm(null)}
             >
               <Plus size={16} />
               添加第一份资料
@@ -294,10 +312,7 @@ export default function LearningPage() {
             <MaterialCard
               key={m.id}
               material={m}
-              onEdit={(mat) => {
-                setEditing(mat);
-                setOpen(true);
-              }}
+              onEdit={openForm}
               onDelete={remove}
               onCycleStatus={cycleStatus}
             />
@@ -308,15 +323,20 @@ export default function LearningPage() {
       <Modal
         open={open}
         onClose={() => {
+          if (savingRef.current) return;
           setOpen(false);
           setEditing(null);
         }}
         title={editing ? "编辑资料" : "添加资料"}
       >
         <MaterialForm
+          key={formSession}
           initial={editing}
+          saving={saving}
+          error={error}
           onSubmit={upsert}
           onCancel={() => {
+            if (savingRef.current) return;
             setOpen(false);
             setEditing(null);
           }}

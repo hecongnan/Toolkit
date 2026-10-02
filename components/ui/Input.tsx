@@ -5,8 +5,9 @@ export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputE
   ({ className, ...rest }, ref) => (
     <input
       ref={ref}
+      data-autofocus={rest.autoFocus || undefined}
       className={cn(
-        "h-10 w-full rounded-lg border border-[color:var(--border-default)] bg-[var(--control-bg)] px-3.5 text-sm text-[color:var(--text-primary)] placeholder:text-[color:var(--text-muted)] transition focus-ring hover:border-[color:var(--border-hover)] focus:border-teal-400/60 focus:bg-[var(--control-active)]",
+        "field-control min-h-11 min-w-0 w-full px-3.5 text-sm placeholder:text-[color:var(--text-muted)] focus-ring",
         className,
       )}
       {...rest}

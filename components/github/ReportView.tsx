@@ -3,6 +3,7 @@
 import { Bot, Copy, Download, ExternalLink } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Tag } from "@/components/ui/Tag";
@@ -39,13 +40,16 @@ export function ReportView({
 }: Props) {
   const markdown = isStreaming || !report ? liveMarkdown : report.markdown;
   const repoUrl = report?.repoUrl;
+  const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "error">("idle");
+  useEffect(() => { setCopyStatus("idle"); }, [report?.id]);
 
   const copy = async () => {
     if (!markdown) return;
     try {
       await navigator.clipboard.writeText(markdown);
+      setCopyStatus("copied");
     } catch {
-      // ignore
+      setCopyStatus("error");
     }
   };
 
@@ -90,11 +94,8 @@ export function ReportView({
               <Tag tone="sky">已读取 {meta.sourceFileCount} 个源文件</Tag>
             )}
             {status && isStreaming && (
-              <span className="inline-flex items-center gap-2 text-xs text-zinc-400">
-                <span className="relative flex h-2 w-2">
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-teal-400/60" />
-                  <span className="relative inline-flex h-2 w-2 rounded-full bg-teal-400" />
-                </span>
+              <span role="status" className="inline-flex items-center gap-2 text-xs text-zinc-400">
+                <span className="h-2 w-2 rounded-full bg-blue-500" aria-hidden />
                 {status.message}
               </span>
             )}
@@ -106,7 +107,7 @@ export function ReportView({
                   href={repoUrl}
                   target="_blank"
                   rel="noreferrer"
-                  className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[color:var(--border-default)] bg-[var(--control-bg)] px-3 text-xs text-[color:var(--text-secondary)] hover:bg-[var(--control-hover)] focus-ring"
+                  className="button button-secondary inline-flex min-h-11 items-center gap-1.5 rounded-xl px-3 text-xs focus-ring"
                 >
                   <ExternalLink size={13} />
                   打开仓库
@@ -120,7 +121,7 @@ export function ReportView({
               )}
               <Button size="sm" variant="ghost" onClick={copy}>
                 <Copy size={13} />
-                复制
+                {copyStatus === "copied" ? "已复制" : "复制"}
               </Button>
               <Button size="sm" variant="secondary" onClick={download}>
                 <Download size={13} />
@@ -130,6 +131,7 @@ export function ReportView({
           )}
         </div>
       )}
+      {copyStatus !== "idle" && <p role="status" className={"px-5 pt-3 text-xs " + (copyStatus === "error" ? "status-error" : "sr-only")}>{copyStatus === "error" ? "复制失败。可以下载报告，或检查浏览器剪贴板权限。" : "报告已复制到剪贴板。"}</p>}
 
       <div className="px-5 py-6 sm:px-7 sm:py-8">
         {markdown ? (

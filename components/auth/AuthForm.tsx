@@ -87,17 +87,17 @@ export function AuthForm({ mode }: AuthFormProps) {
   };
 
   return (
-    <main className="grid min-h-screen place-items-center px-4 py-10">
+    <main className="grid min-h-dvh place-items-center px-5 py-12">
       <div className="w-full max-w-md">
-        <div className="mb-6 flex flex-col items-center text-center">
-          <div className="mb-4 grid h-12 w-12 place-items-center rounded-xl bg-brand-gradient text-white shadow-glow">
+        <div className="mb-8 flex flex-col items-center text-center">
+          <div className="brand-mark mb-6 h-14 w-14">
             <Sparkles size={22} strokeWidth={2.4} />
           </div>
-          <h1 className="text-2xl font-semibold text-zinc-50">
-            {isLogin ? "登录 Toolkit" : "注册 Toolkit"}
+          <h1 className="text-3xl font-semibold tracking-[-0.035em] text-[color:var(--text-primary)]">
+            {isLogin ? "欢迎回到 Toolkit" : "开启你的个人工作区"}
           </h1>
-          <p className="mt-2 text-sm text-zinc-400">
-            {isLogin ? "登录后即可同步你的资料、Todo 和分析报告。" : "创建账号后，你的数据会按用户独立保存。"}
+          <p className="mt-3 text-sm leading-6 text-[color:var(--text-muted)]">
+            {isLogin ? "学习、计划、探索。从这里继续。" : "把资料、待办和项目灵感，放在一个地方。"}
           </p>
         </div>
 
@@ -129,12 +129,12 @@ export function AuthForm({ mode }: AuthFormProps) {
             </label>
 
             {error && (
-              <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-100">
+              <div role="alert" className="status-error rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-3 text-sm">
                 {error}
               </div>
             )}
             {message && (
-              <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-100">
+              <div role="status" className="status-success rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-3 text-sm">
                 {message}
                 {needsVerification && (
                   <button type="button" onClick={resendVerification} disabled={resending} className="mt-2 block font-medium underline disabled:opacity-50">

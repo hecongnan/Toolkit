@@ -9,26 +9,28 @@ const config: Config = {
   theme: {
     extend: {
       fontFamily: {
-        sans: ["var(--font-inter)", "system-ui", "sans-serif"],
-        mono: ["var(--font-mono)", "ui-monospace", "monospace"],
+        sans: ["-apple-system", "BlinkMacSystemFont", "Segoe UI", "Noto Sans SC", "system-ui", "sans-serif"],
+        mono: ["SFMono-Regular", "Cascadia Code", "ui-monospace", "monospace"],
       },
       colors: {
         brand: {
-          50: "#ecfeff",
-          100: "#cffafe",
-          400: "#2dd4bf",
-          500: "#0f9f95",
-          600: "#0f766e",
+          50: "#eff6ff",
+          100: "#dbeafe",
+          400: "#60a5fa",
+          500: "#2563eb",
+          600: "#1d4ed8",
         },
+        // Compatibility for existing feature components; one accent across the app.
+        teal: { 50: "#eff6ff", 100: "#dbeafe", 200: "#bfdbfe", 300: "#93c5fd", 400: "#60a5fa", 500: "#3b82f6", 600: "#2563eb", 700: "#1d4ed8", 800: "#1e40af", 900: "#1e3a8a" },
       },
       backgroundImage: {
         "brand-gradient":
-          "linear-gradient(135deg, #0f766e 0%, #0f9f95 58%, #f59e0b 100%)",
+          "linear-gradient(180deg, #3b82f6, #2563eb)",
         "brand-gradient-soft":
-          "linear-gradient(135deg, rgba(15,118,110,0.18), rgba(20,184,166,0.14) 58%, rgba(245,158,11,0.12))",
+          "linear-gradient(180deg, rgba(59,130,246,0.10), rgba(59,130,246,0.06))",
       },
       boxShadow: {
-        glow: "0 0 0 1px rgba(20,184,166,0.3), 0 8px 26px -14px rgba(15,118,110,0.48)",
+        glow: "0 1px 2px rgba(0,0,0,0.12), inset 0 1px 0 rgba(255,255,255,0.15)",
       },
       animation: {
         "fade-in": "fadeIn 200ms ease-out",

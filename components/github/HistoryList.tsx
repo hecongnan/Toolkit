@@ -51,9 +51,10 @@ export function HistoryList({ reports, selectedId, onSelect, onDelete }: Props) 
           >
             <button
               onClick={() => onSelect(r)}
-              className="flex-1 px-4 py-3 text-left focus-ring"
+              aria-pressed={selectedId === r.id}
+              className="min-w-0 flex-1 px-4 py-4 text-left focus-ring"
             >
-              <p className="text-sm font-medium text-zinc-100">
+              <p className="break-words text-sm font-medium text-zinc-100">
                 {r.owner}/{r.repo}
               </p>
               <p className="line-clamp-1 text-xs text-zinc-500">
@@ -68,7 +69,7 @@ export function HistoryList({ reports, selectedId, onSelect, onDelete }: Props) 
                 if (confirm("删除这条历史记录？")) onDelete(r.id);
               }}
               aria-label="删除"
-              className="mr-2 rounded-md p-1.5 text-zinc-500 opacity-0 transition group-hover:opacity-100 hover:bg-rose-500/10 hover:text-rose-300 focus-ring focus:opacity-100"
+              className="button icon-button todo-actions status-error mr-2 focus-ring"
             >
               <Trash2 size={14} />
             </button>

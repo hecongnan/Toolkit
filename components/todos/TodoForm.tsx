@@ -51,12 +51,13 @@ export function TodoForm({ date, onAdd, disabled = false }: Props) {
   };
 
   return (
-    <form onSubmit={submit} className="surface space-y-3 p-3">
+    <form onSubmit={submit} className="surface space-y-4 p-4 sm:p-5">
+      <p className="text-sm font-semibold">添加一项待办</p>
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
         <Input
           value={text}
           onChange={(e) => setText(e.target.value)}
-          placeholder="输入一项任务，回车添加..."
+          placeholder="接下来，想完成什么？"
           className="sm:flex-1"
           disabled={submitting || disabled}
           aria-label="任务内容"
@@ -68,18 +69,19 @@ export function TodoForm({ date, onAdd, disabled = false }: Props) {
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <div className="flex gap-1 rounded-lg border border-white/10 bg-white/[0.03] p-1">
+        <div role="group" aria-label="任务优先级" className="flex flex-wrap gap-1 rounded-xl bg-[var(--control-bg)] p-1">
           {[1, 2, 3].map((p) => (
             <button
               type="button"
               disabled={disabled || submitting}
               key={p}
               onClick={() => setPriority(p as 1 | 2 | 3)}
+              aria-pressed={priority === p}
               className={
-                "rounded-md px-2.5 py-1 text-xs font-medium transition focus-ring " +
+                "button min-h-11 rounded-lg px-3 text-xs font-medium focus-ring " +
                 (priority === p
-                  ? "bg-brand-gradient text-white shadow-glow"
-                  : "text-zinc-400 hover:text-zinc-100")
+                  ? "bg-[var(--surface)] text-[color:var(--accent)] shadow-sm"
+                  : "button-ghost")
               }
             >
               {["高", "中", "低"][p - 1]} · P{p}
@@ -95,7 +97,7 @@ export function TodoForm({ date, onAdd, disabled = false }: Props) {
             value={scheduledTime}
             onChange={(event) => setScheduledTime(event.target.value)}
             aria-label="计划时间"
-            className="h-9 rounded-lg border border-white/10 bg-white/[0.03] pl-8 pr-2 text-xs text-zinc-300 focus-ring"
+            className="field-control min-h-11 min-w-0 pl-8 pr-2 text-sm focus-ring"
           />
         </label>
 
@@ -106,7 +108,7 @@ export function TodoForm({ date, onAdd, disabled = false }: Props) {
             disabled={disabled || submitting}
             onChange={(event) => setRepeat(event.target.value as TodoRepeat)}
             aria-label="重复规则"
-            className="h-9 rounded-lg border border-white/10 bg-white/[0.03] pl-8 pr-7 text-xs text-zinc-300 focus-ring"
+            className="field-control min-h-11 pl-8 pr-7 text-sm focus-ring"
           >
             {REPEAT_OPTIONS.map((option) => (
               <option key={option.value} value={option.value}>

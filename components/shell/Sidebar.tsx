@@ -18,10 +18,10 @@ import { cn } from "@/lib/cn";
 import { createClient } from "@/lib/supabase/client";
 
 const NAV = [
-  { href: "/", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/", label: "概览", icon: LayoutDashboard },
   { href: "/learning", label: "学习资料", icon: BookOpen },
-  { href: "/todos", label: "Todo", icon: CheckCircle2 },
-  { href: "/github", label: "GitHub 分析", icon: Github },
+  { href: "/todos", label: "每日待办", icon: CheckCircle2 },
+  { href: "/github", label: "项目分析", icon: Github },
   { href: "/settings", label: "AI 设置", icon: Settings },
 ] as const;
 
@@ -65,23 +65,23 @@ export function Sidebar({ onNavigate, theme = "dark", onToggleTheme }: SidebarPr
   };
 
   return (
-    <aside className="flex h-full w-full flex-col gap-2 border-r border-[color:var(--border-subtle)] bg-[var(--surface-panel)] px-4 py-6">
+    <aside className="chrome flex h-full min-h-0 w-full flex-col gap-2 overflow-y-auto border-r border-[color:var(--border-subtle)] px-4 py-7">
       <Link
         href="/"
         onClick={onNavigate}
-        className="mb-6 flex items-center gap-3 px-2 py-1 focus-ring rounded-lg"
+        className="mb-8 flex items-center gap-3 rounded-xl px-2 py-1 focus-ring"
       >
-        <div className="grid h-9 w-9 place-items-center rounded-lg bg-brand-gradient text-white shadow-glow">
+        <div className="brand-mark h-10 w-10">
           <Sparkles size={18} strokeWidth={2.4} />
         </div>
         <div className="leading-tight">
-          <p className="text-sm font-semibold tracking-wide text-[color:var(--text-primary)]">Toolkit</p>
-          <p className="text-[11px] text-[color:var(--text-muted)]">个人效能空间</p>
+          <p className="text-base font-semibold tracking-tight text-[color:var(--text-primary)]">Toolkit</p>
+          <p className="mt-1 text-xs text-[color:var(--text-muted)]">你的个人工作区</p>
         </div>
       </Link>
 
-      <div className="section-label mb-1 px-3">工作区</div>
-      <nav className="flex flex-col gap-1">
+      <div className="section-label mb-2 px-3">我的空间</div>
+      <nav aria-label="主要导航" className="flex flex-col gap-1.5">
         {NAV.map(({ href, label, icon: Icon }) => {
           const active =
             href === "/" ? pathname === "/" : pathname?.startsWith(href);
@@ -90,26 +90,18 @@ export function Sidebar({ onNavigate, theme = "dark", onToggleTheme }: SidebarPr
               key={href}
               href={href}
               onClick={onNavigate}
+              aria-current={active ? "page" : undefined}
               className={cn(
-                "group relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition focus-ring",
-                active
-                  ? "bg-[var(--control-active)] text-[color:var(--text-primary)]"
-                  : "text-[color:var(--text-tertiary)] hover:bg-[var(--control-hover)] hover:text-[color:var(--text-primary)]",
+                "nav-link group flex items-center gap-3 px-3 py-2.5 text-sm focus-ring",
               )}
             >
-              {active && (
-                <span
-                  aria-hidden
-                  className="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full bg-teal-400"
-                />
-              )}
               <Icon
                 size={18}
                 className={cn(
-                  "shrink-0 transition",
+                  "shrink-0",
                   active
-                    ? "text-teal-300"
-                    : "text-zinc-500 group-hover:text-zinc-300",
+                    ? "text-[color:var(--accent)]"
+                    : "text-[color:var(--text-muted)]",
                 )}
               />
               <span className="font-medium">{label}</span>
@@ -118,34 +110,36 @@ export function Sidebar({ onNavigate, theme = "dark", onToggleTheme }: SidebarPr
         })}
       </nav>
 
-      <div className="mt-auto space-y-3 px-2 py-3">
+      <div className="mt-auto space-y-3 border-t border-[color:var(--border-subtle)] px-1 pb-1 pt-5">
         <button
           type="button"
           onClick={onToggleTheme}
-          className="flex w-full items-center justify-between rounded-xl border border-[color:var(--border-default)] bg-[var(--control-bg)] px-3 py-2 text-left text-xs font-medium text-[color:var(--text-secondary)] transition hover:bg-[var(--control-hover)] hover:text-[color:var(--text-primary)] focus-ring"
+          aria-label={theme === "light" ? "切换到夜间样式" : "切换到日间样式"}
+          className="button button-ghost flex min-h-11 w-full items-center justify-between rounded-xl px-3 text-left text-xs font-medium focus-ring"
         >
           <span className="inline-flex items-center gap-2">
             {theme === "light" ? <Sun size={14} /> : <Moon size={14} />}
             {theme === "light" ? "日间样式" : "夜间样式"}
           </span>
-          <span className="text-[10px] text-[color:var(--text-faint)]">切换</span>
+          <span className="text-xs text-[color:var(--text-muted)]">切换</span>
         </button>
-        <div className="min-w-0 rounded-xl border border-[color:var(--border-default)] bg-[var(--control-bg)] px-3 py-2">
-          <p className="text-[11px] text-[color:var(--text-muted)]">当前账号</p>
-          <p className="truncate text-xs font-medium text-[color:var(--text-secondary)]">
+        <div className="flex min-w-0 items-center gap-3 rounded-xl px-3 py-2">
+          <span aria-hidden className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[var(--control-hover)] text-sm font-semibold text-[color:var(--text-secondary)]">{email?.[0]?.toUpperCase() ?? "T"}</span>
+          <div className="min-w-0"><p className="text-xs text-[color:var(--text-muted)]">个人账号</p>
+          <p className="mt-0.5 truncate text-xs font-medium text-[color:var(--text-secondary)]" title={email ?? undefined}>
             {email ?? "账号信息暂不可用"}
           </p>
+          </div>
         </div>
         <button
           type="button"
           onClick={signOut}
-          className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-xs font-medium text-[color:var(--text-tertiary)] transition hover:bg-[var(--control-hover)] hover:text-[color:var(--text-primary)] focus-ring"
+          className="button button-ghost flex min-h-11 w-full items-center gap-2 rounded-xl px-3 text-left text-xs font-medium focus-ring"
         >
           <LogOut size={14} />
           退出登录
         </button>
-        {signOutError && <p role="alert" className="text-xs text-rose-300">{signOutError}</p>}
-        <p className="text-[11px] text-[color:var(--text-faint)]">v0.2 · 云端同步</p>
+        {signOutError && <p role="alert" className="status-error text-xs">{signOutError}</p>}
       </div>
     </aside>
   );

@@ -163,6 +163,8 @@ EdgeOne 会自动使用 OpenNext 适配器保留 SSR 和 API Route。当前项�
 
 ## 目录速览
 
+前端设计规则、无障碍约定与浏览器回归测试见 [前端设计与验证](docs/frontend-design.md)。
+
 ```
 app/
   layout.tsx           # 根布局 + AppShell

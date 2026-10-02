@@ -59,7 +59,7 @@ export function TodoEditor({ todo, onSave, onCancel, error }: Props) {
             setScope(event.target.value as TodoScope);
             setDueDate(todo.dueDate);
             setRepeat(todo.repeat);
-          }} className="h-10 w-full rounded-lg border border-[color:var(--border-default)] bg-[var(--control-bg)] px-3 text-sm text-[color:var(--text-primary)] focus-ring">
+          }} className="field-control min-h-11 w-full px-3 text-sm focus-ring">
             <option value="single">仅这次</option>
             <option value="future">这次及以后</option>
           </select>
@@ -90,14 +90,15 @@ export function TodoEditor({ todo, onSave, onCancel, error }: Props) {
                 type="button"
                 key={value}
                 onClick={() => setPriority(value as 1 | 2 | 3)}
+                aria-pressed={priority === value}
                 className={
-                  "h-10 rounded-lg border text-xs font-medium transition focus-ring " +
+                  "button min-h-11 rounded-xl border text-xs font-medium focus-ring " +
                   (priority === value
-                    ? "border-teal-400/50 bg-teal-500/15 text-teal-100"
-                    : "border-white/10 bg-white/[0.03] text-zinc-400 hover:text-zinc-100")
+                    ? "border-[color:var(--accent)] bg-[var(--accent-soft)] text-[color:var(--accent)]"
+                    : "button-secondary")
                 }
               >
-                P{value}
+                {["高", "中", "低"][value - 1]} · P{value}
               </button>
             ))}
           </div>
@@ -108,7 +109,7 @@ export function TodoEditor({ todo, onSave, onCancel, error }: Props) {
             value={repeat}
             disabled={recurring && scope === "single"}
             onChange={(event) => setRepeat(event.target.value as TodoRepeat)}
-            className="h-10 w-full rounded-lg border border-white/10 bg-white/[0.03] px-3 text-sm text-zinc-200 focus-ring"
+            className="field-control min-h-11 w-full px-3 text-sm focus-ring"
           >
             {REPEAT_OPTIONS.map((option) => (
               <option key={option.value} value={option.value}>

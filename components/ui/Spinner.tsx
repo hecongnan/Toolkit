@@ -8,7 +8,8 @@ export function Spinner({ className, size = 16 }: { className?: string; size?: n
       height={size}
       viewBox="0 0 24 24"
       fill="none"
-      aria-label="Loading"
+      role="status"
+      aria-label="正在加载"
     >
       <circle
         cx="12"

@@ -205,7 +205,7 @@ export default function TodosPage() {
 
   return (
     <>
-      <PageHeader eyebrow="Today" title="每日 Todo" description="按日期安排任务，重复计划会在对应日期出现。" />
+      <PageHeader eyebrow="一天，一步" title="每日待办" description="给重要的事留出时间。今天没完成的，也可以从容安排。" />
       {error && <div role="alert" className="mb-4 space-y-2 rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-400">
         <p>{error}</p>{loadFailed && <Button size="sm" onClick={() => void loadTodos()}>重试加载</Button>}
       </div>}
@@ -218,7 +218,7 @@ export default function TodosPage() {
           <div className="mb-3 flex items-center justify-between text-xs text-[color:var(--text-muted)]">
             <span>{loading ? "正在加载当日进度..." : "当日进度 · " + done.length + "/" + total + "（跳过不计入）"}</span><span>{pct}%</span>
           </div>
-          <div className="h-2 overflow-hidden rounded-full bg-[var(--control-bg)]"><div className="h-full bg-brand-gradient transition-all" style={{ width: pct + "%" }} /></div>
+          <div role="progressbar" aria-label="当日完成度" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} className="h-1.5 overflow-hidden rounded-full bg-[var(--control-bg)]"><div className="h-full rounded-full bg-blue-500" style={{ width: pct + "%" }} /></div>
         </Card>
         <TodoForm date={date} onAdd={add} disabled={disabled || loadFailed} />
         {loading ? <div className="flex justify-center py-12"><Spinner size={20} /></div> : loadFailed ? null : (
@@ -228,7 +228,7 @@ export default function TodosPage() {
             {done.length > 0 && <details className="surface"><summary className="cursor-pointer px-4 py-3 text-sm text-[color:var(--text-muted)]">已完成 · {done.length}</summary><div className="divide-y divide-[color:var(--border-subtle)]">{done.map((todo, index) => renderTodo(todo, index))}</div></details>}
             {skipped.length > 0 && <details className="surface"><summary className="cursor-pointer px-4 py-3 text-sm text-[color:var(--text-muted)]">已跳过 · {skipped.length}（可恢复）</summary><div className="divide-y divide-[color:var(--border-subtle)]">{skipped.map((todo) => <div key={todo.id} className="flex items-center justify-between gap-3 px-4 py-3"><span className="break-words text-sm">{todo.text}</span><Button size="sm" disabled={disabled} onClick={() => void toggle(todo.id)}>恢复这次</Button></div>)}</div></details>}
             {date === today && overdueCount > 0 && <details className="surface" open>
-              <summary className="cursor-pointer px-4 py-3 text-sm font-medium text-amber-500">逾期未完成 · {overdueCount}</summary>
+              <summary className="status-warning min-h-11 cursor-pointer px-4 py-4 text-sm font-medium">逾期未完成 · {overdueCount}</summary>
               <p className="px-4 pb-3 text-xs leading-relaxed text-[color:var(--text-muted)]">重复任务补齐最近 30 天；单次任务不限制逾期日期。可以完成、移到今天或跳过这次；更早的重复记录可按日期查看。</p>
               <div className="divide-y divide-[color:var(--border-subtle)]">{overdue.map((todo, index) => renderTodo(todo, index, true))}</div>
               {overdue.length < overdueCount && <div className="p-4"><Button size="sm" disabled={disabled} onClick={() => setOverdueLimit((value) => value + 50)}>加载更多（已显示 {overdue.length}/{overdueCount}）</Button></div>}

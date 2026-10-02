@@ -28,12 +28,14 @@ export function FloatingAnalysisChat({
         onClick={() => !disabled && onOpenChange(true)}
         disabled={disabled}
         className={cn(
-          "fixed bottom-5 right-5 z-30 grid h-14 w-14 place-items-center rounded-2xl bg-brand-gradient text-white shadow-glow transition focus-ring sm:bottom-8 sm:right-8",
+          "button button-primary fixed bottom-5 right-5 z-30 grid h-14 w-14 place-items-center rounded-2xl focus-ring sm:bottom-8 sm:right-8",
           disabled
             ? "cursor-not-allowed opacity-50"
-            : "hover:-translate-y-0.5 hover:brightness-110 active:translate-y-0 active:brightness-95",
+            : "",
         )}
         aria-label={disabled ? "报告生成完成后可追问 AI" : "打开 AI 追问"}
+        aria-haspopup="dialog"
+        aria-expanded={open}
         title={disabled ? "报告生成完成后可追问 AI" : "打开 AI 追问"}
       >
         {report ? <Bot size={22} /> : <Sparkles size={22} />}

@@ -1,25 +1,17 @@
 import type { Metadata, Viewport } from "next";
-import { Inter, JetBrains_Mono } from "next/font/google";
 import Script from "next/script";
 import "./globals.css";
 import { AppShell } from "@/components/shell/AppShell";
 import { readRuntimeEnv } from "@/lib/env";
 
-const inter = Inter({ subsets: ["latin"], variable: "--font-inter", display: "swap" });
-const jetbrains = JetBrains_Mono({
-  subsets: ["latin"],
-  variable: "--font-mono",
-  display: "swap",
-});
-
 export const metadata: Metadata = {
   title: "Toolkit · 个人效能空间",
   description:
-    "学习资料整理、每日 todo、GitHub 仓库 AI 分析 —— 高端简洁的个人效能小工具。",
+    "整理学习资料、安排每日待办、理解 GitHub 项目。一个专注、清晰的个人工作区。",
 };
 
 export const viewport: Viewport = {
-  themeColor: "#0a0a0a",
+  themeColor: [{ media: "(prefers-color-scheme: light)", color: "#f5f5f7" }, { media: "(prefers-color-scheme: dark)", color: "#161618" }],
   width: "device-width",
   initialScale: 1,
 };
@@ -33,7 +25,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   }).replace(/</g, "\\u003c");
 
   return (
-    <html lang="zh-CN" className={`${inter.variable} ${jetbrains.variable}`} suppressHydrationWarning>
+    <html lang="zh-CN" suppressHydrationWarning>
       <body>
         <script
           id="runtime-config"
@@ -42,7 +34,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           }}
         />
         <Script id="theme-init" strategy="beforeInteractive">
-          {`try{var theme=localStorage.getItem('toolkit-theme');document.documentElement.dataset.theme=theme==='light'?'light':'dark'}catch{document.documentElement.dataset.theme='dark'}`}
+          {`try{var theme=localStorage.getItem('toolkit-theme');document.documentElement.dataset.theme=theme==='light'||theme==='dark'?theme:matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'}catch{document.documentElement.dataset.theme='light'}`}
         </Script>
         <AppShell>{children}</AppShell>
       </body>

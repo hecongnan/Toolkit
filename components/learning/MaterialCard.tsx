@@ -32,7 +32,8 @@ export function MaterialCard({ material, onEdit, onDelete, onCycleStatus }: Prop
       <div className="flex items-start justify-between gap-2">
         <button
           onClick={() => onCycleStatus(material.id)}
-          className="focus-ring rounded-md"
+          className="button min-h-11 rounded-xl focus-ring"
+          aria-label={`学习状态：${STATUS_LABEL[material.status]}，点击切换`}
           title="点击切换状态"
         >
           <Tag tone={STATUS_TONE[material.status]}>
@@ -43,14 +44,14 @@ export function MaterialCard({ material, onEdit, onDelete, onCycleStatus }: Prop
           <button
             onClick={() => onEdit(material)}
             aria-label="编辑"
-            className="rounded-md p-1.5 text-zinc-400 hover:bg-white/5 hover:text-zinc-100 focus-ring"
+            className="button icon-button focus-ring"
           >
             <Pencil size={14} />
           </button>
           <button
             onClick={() => onDelete(material.id)}
             aria-label="删除"
-            className="rounded-md p-1.5 text-zinc-500 hover:bg-rose-500/10 hover:text-rose-300 focus-ring"
+            className="button icon-button status-error focus-ring"
           >
             <Trash2 size={14} />
           </button>
@@ -85,7 +86,7 @@ export function MaterialCard({ material, onEdit, onDelete, onCycleStatus }: Prop
             href={material.url}
             target="_blank"
             rel="noreferrer"
-            className="inline-flex items-center gap-1 text-teal-300 hover:text-teal-200"
+            className="quiet-link inline-flex min-h-11 items-center gap-1 rounded-lg focus-ring"
           >
             打开
             <ExternalLink size={12} />

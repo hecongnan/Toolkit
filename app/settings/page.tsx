@@ -49,12 +49,12 @@ export default function SettingsPage() {
   return (
     <>
       <PageHeader
-        eyebrow="Settings"
+        eyebrow="按你的方式工作"
         title="AI 设置"
         description="配置你自己的 DeepSeek API Key 和模型。配置只保存在当前浏览器。"
       />
 
-      <div className="max-w-2xl">
+      <div className="max-w-3xl">
         <Card className="!p-0 overflow-hidden">
           <div className="flex items-center gap-3 border-b border-[color:var(--border-subtle)] px-5 py-4">
             <div className="grid h-9 w-9 place-items-center rounded-lg bg-teal-500/10 text-teal-300">
@@ -78,14 +78,15 @@ export default function SettingsPage() {
                   onChange={(event) => setApiKey(event.target.value)}
                   placeholder="sk-..."
                   autoComplete="off"
-                  className="pr-11 font-mono"
+                  className="pr-14 font-mono"
                 />
                 <button
                   type="button"
                   onClick={() => setShowKey((current) => !current)}
                   aria-label={showKey ? "隐藏 API Key" : "显示 API Key"}
                   title={showKey ? "隐藏 API Key" : "显示 API Key"}
-                  className="absolute right-1 top-1 grid h-8 w-8 place-items-center rounded-md text-[color:var(--text-muted)] hover:bg-[var(--control-hover)] hover:text-[color:var(--text-primary)] focus-ring"
+                  aria-pressed={showKey}
+                  className="button icon-button absolute right-0 top-0 focus-ring"
                 >
                   {showKey ? <EyeOff size={16} /> : <Eye size={16} />}
                 </button>
@@ -123,7 +124,7 @@ export default function SettingsPage() {
                 恢复默认
               </Button>
               <div className="flex items-center justify-end gap-3">
-                {saved && <span className="text-xs text-emerald-300">已保存</span>}
+                <span role="status" className="status-success min-w-12 text-xs">{saved ? "已保存" : ""}</span>
                 <Button type="submit" variant="primary">
                   <Save size={15} />
                   保存配置

@@ -24,20 +24,20 @@ function relativeLabel(value: string): string {
 
 export function DateNav({ value, onChange, disabled = false }: Props) {
   return (
-    <div className="surface flex flex-wrap items-center justify-between gap-3 p-3">
-      <div className="flex items-center gap-1">
+    <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="surface flex items-center gap-0.5 p-1">
         <button
           disabled={disabled}
           onClick={() => onChange(shiftDate(value, -1))}
           aria-label="上一天"
-          className="rounded-lg p-2 text-zinc-300 hover:bg-white/5 focus-ring"
+          className="button icon-button focus-ring"
         >
           <ChevronLeft size={18} />
         </button>
         <button
           disabled={disabled}
           onClick={() => onChange(todayKey())}
-          className="rounded-lg px-3 py-1.5 text-xs font-medium text-zinc-300 hover:bg-white/5 focus-ring"
+          className="button button-ghost min-h-11 rounded-xl px-3 text-sm font-medium focus-ring"
         >
           今天
         </button>
@@ -45,16 +45,16 @@ export function DateNav({ value, onChange, disabled = false }: Props) {
           disabled={disabled}
           onClick={() => onChange(shiftDate(value, 1))}
           aria-label="下一天"
-          className="rounded-lg p-2 text-zinc-300 hover:bg-white/5 focus-ring"
+          className="button icon-button focus-ring"
         >
           <ChevronRight size={18} />
         </button>
       </div>
-      <div className="flex items-center gap-2 text-sm">
-        <span className="font-semibold text-zinc-100">{relativeLabel(value)}</span>
-        <span className="text-zinc-500">{value}</span>
+      <div className="flex flex-1 flex-wrap items-baseline justify-end gap-x-2 gap-y-1 text-sm sm:justify-center">
+        <span aria-live="polite" className="font-semibold text-zinc-100">{relativeLabel(value)}</span>
+        <span className="text-xs tabular-nums text-zinc-500">{value}</span>
       </div>
-      <label className="relative inline-flex items-center">
+      <label className="relative inline-flex w-full items-center sm:w-auto">
         <CalendarDays
           size={16}
           className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400"
@@ -65,7 +65,7 @@ export function DateNav({ value, onChange, disabled = false }: Props) {
           disabled={disabled}
           value={value}
           onChange={(e) => { if (isDateKey(e.target.value)) onChange(e.target.value); }}
-          className="h-9 rounded-lg border border-white/10 bg-white/[0.03] pl-9 pr-3 text-xs text-zinc-200 focus-ring hover:border-white/20"
+          className="field-control min-h-11 w-full min-w-0 pl-9 pr-3 text-sm focus-ring sm:w-auto"
         />
       </label>
     </div>

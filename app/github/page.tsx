@@ -265,9 +265,9 @@ function GitHubPageInner() {
   return (
     <>
       <PageHeader
-        eyebrow="GitHub"
-        title="仓库智能分析"
-        description="粘贴一个 GitHub 仓库地址，自动获取关键文件并由 DeepSeek 生成通俗易懂的分析报告。"
+        eyebrow="从代码，到理解"
+        title="项目分析"
+        description="放入一个 GitHub 地址，了解项目的结构、技术选择和改进方向。"
       />
 
       <div className="space-y-6">
@@ -310,7 +310,7 @@ function GitHubPageInner() {
                 />
                 <p className="font-medium text-zinc-200">尚未选择报告</p>
                 <p className="mt-1 text-zinc-500">
-                  在上方输入仓库地址生成新分析，或从右侧历史中查看。
+                  在上方输入仓库地址生成新分析，或选择一份历史报告。
                 </p>
                 {pendingRepoUrl && (
                   <p className="mt-4 text-[11px] text-zinc-600">最近请求：{pendingRepoUrl}</p>
@@ -319,7 +319,7 @@ function GitHubPageInner() {
             ) : null}
           </div>
 
-          <div className="lg:sticky lg:top-6 lg:h-fit">
+          <div className="lg:sticky lg:top-24 lg:h-fit">
             {loadingHistory ? (
               <div className="surface flex justify-center py-10">
                 <span className="text-sm text-zinc-500">正在加载历史...</span>

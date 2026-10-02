@@ -10,20 +10,16 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 }
 
 const variantClasses: Record<Variant, string> = {
-  primary:
-    "bg-brand-gradient text-white shadow-glow hover:brightness-105 active:brightness-95",
-  secondary:
-    "border border-[color:var(--border-default)] bg-[var(--control-bg)] text-[color:var(--text-primary)] hover:bg-[var(--control-hover)]",
-  ghost:
-    "text-[color:var(--text-secondary)] hover:bg-[var(--control-hover)] hover:text-[color:var(--text-primary)]",
-  danger:
-    "border border-rose-500/30 bg-rose-500/10 text-rose-200 hover:bg-rose-500/20 [html[data-theme=light]_&]:text-rose-800",
+  primary: "button-primary",
+  secondary: "button-secondary",
+  ghost: "button-ghost",
+  danger: "button-danger",
 };
 
 const sizeClasses: Record<Size, string> = {
-  sm: "h-8 px-3 text-xs rounded-lg gap-1.5",
-  md: "h-10 px-4 text-sm rounded-lg gap-2",
-  lg: "h-12 px-6 text-base rounded-lg gap-2",
+  sm: "min-h-9 px-3 text-xs rounded-xl gap-1.5 max-sm:min-h-11",
+  md: "min-h-11 px-4 text-sm rounded-xl gap-2",
+  lg: "min-h-12 px-6 text-base rounded-xl gap-2",
 };
 
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
@@ -31,7 +27,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
     <button
       ref={ref}
       className={cn(
-        "inline-flex items-center justify-center font-medium transition focus-ring disabled:cursor-not-allowed disabled:opacity-50",
+        "button inline-flex shrink-0 items-center justify-center font-medium focus-ring disabled:cursor-not-allowed disabled:opacity-50",
         variantClasses[variant],
         sizeClasses[size],
         className,

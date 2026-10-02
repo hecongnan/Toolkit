@@ -246,7 +246,7 @@ export function AnalysisChat({ report, variant = "card" }: Props) {
           </div>
           <p className="text-sm font-semibold text-[color:var(--text-primary)]">先选择一份报告</p>
           <p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-[color:var(--text-tertiary)]">
-            生成或从右侧历史中选择 GitHub 分析报告后，就可以在这里基于报告继续追问。
+            生成或选择一份 GitHub 分析报告后，就可以在这里基于报告继续追问。
           </p>
         </div>
       </div>
@@ -306,7 +306,7 @@ export function AnalysisChat({ report, variant = "card" }: Props) {
                       : "border border-[color:var(--border-default)] bg-[var(--control-bg)] text-[color:var(--text-secondary)]",
                   )}
                 >
-                  <p className="whitespace-pre-wrap">{message.content || "..."}</p>
+                  <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{message.content || "..."}</p>
                   <p className="mt-2 text-[10px] text-[color:var(--text-faint)]">{timeLabel(message.createdAt)}</p>
                 </div>
                 {isUser && (
@@ -321,6 +321,7 @@ export function AnalysisChat({ report, variant = "card" }: Props) {
 
         <div className="space-y-3 border-t border-[color:var(--border-subtle)] pt-4">
           <Textarea
+            aria-label="向 AI 追问"
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             placeholder="继续追问这份报告，例如：我想二次开发应该先改哪里？"

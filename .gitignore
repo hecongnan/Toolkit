@@ -12,3 +12,5 @@ dist
 .vscode
 .idea
 nul
+test-results
+playwright-report

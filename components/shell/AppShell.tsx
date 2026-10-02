@@ -1,11 +1,12 @@
 "use client";
 
-import { Menu, Moon, RotateCcw, Sparkles, Sun, X } from "lucide-react";
+import { Menu, Moon, RotateCcw, Sun, ChevronRight } from "lucide-react";
+import Link from "next/link";
 import { useEffect, useState, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
 import { useRouter } from "next/navigation";
 import { Sidebar } from "./Sidebar";
-import { cn } from "@/lib/cn";
+import { Modal } from "@/components/ui/Modal";
 import { createClient } from "@/lib/supabase/client";
 import { isMissingSessionError } from "@/lib/auth-errors";
 
@@ -15,7 +16,7 @@ type Theme = "dark" | "light";
 
 export function AppShell({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false);
-  const [theme, setTheme] = useState<Theme>("dark");
+  const [theme, setTheme] = useState<Theme>("light");
   const [authStatus, setAuthStatus] = useState<"checking" | "ready" | "error">("checking");
   const [authRetry, setAuthRetry] = useState(0);
   const pathname = usePathname();
@@ -61,19 +62,32 @@ export function AppShell({ children }: { children: ReactNode }) {
   }, [authRetry, isAuthRoute, isProtectedRoute, pathname, router]);
 
   useEffect(() => {
-    const saved = window.localStorage.getItem("toolkit-theme");
-    const nextTheme: Theme = saved === "light" ? "light" : "dark";
-    setTheme(nextTheme);
-    document.documentElement.dataset.theme = nextTheme;
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    const sync = () => {
+      let saved: string | null = null;
+      try { saved = window.localStorage.getItem("toolkit-theme"); } catch { /* storage can be unavailable */ }
+      const nextTheme = saved === "light" || saved === "dark" ? saved : media.matches ? "dark" : "light";
+      setTheme(nextTheme);
+      document.documentElement.dataset.theme = nextTheme;
+    };
+    sync();
+    media.addEventListener("change", sync);
+    const keyboard = (event: KeyboardEvent) => { if (!event.metaKey && !event.ctrlKey && !event.altKey) document.documentElement.dataset.input = "keyboard"; };
+    const pointer = () => { document.documentElement.dataset.input = "pointer"; };
+    window.addEventListener("keydown", keyboard, true);
+    window.addEventListener("pointerdown", pointer, true);
+    return () => {
+      media.removeEventListener("change", sync);
+      window.removeEventListener("keydown", keyboard, true);
+      window.removeEventListener("pointerdown", pointer, true);
+    };
   }, []);
 
-  useEffect(() => {
-    document.documentElement.dataset.theme = theme;
-    window.localStorage.setItem("toolkit-theme", theme);
-  }, [theme]);
-
   const toggleTheme = () => {
-    setTheme((current) => (current === "dark" ? "light" : "dark"));
+    const next = theme === "dark" ? "light" : "dark";
+    setTheme(next);
+    document.documentElement.dataset.theme = next;
+    try { window.localStorage.setItem("toolkit-theme", next); } catch { /* theme still changes without storage */ }
   };
 
   // Auto-close drawer on route change.
@@ -82,12 +96,11 @@ export function AppShell({ children }: { children: ReactNode }) {
   }, [pathname]);
 
   useEffect(() => {
-    if (!open) return;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = "";
-    };
-  }, [open]);
+    const media = window.matchMedia("(min-width: 768px)");
+    const closeDesktopDrawer = () => { if (media.matches) setOpen(false); };
+    media.addEventListener("change", closeDesktopDrawer);
+    return () => media.removeEventListener("change", closeDesktopDrawer);
+  }, []);
 
   if (isAuthRoute) {
     return <>{children}</>;
@@ -116,74 +129,33 @@ export function AppShell({ children }: { children: ReactNode }) {
   }
 
   return (
-    <div className="min-h-screen md:flex">
-      {/* Mobile top bar */}
-      <header className="sticky top-0 z-30 flex h-14 items-center justify-between border-b border-[color:var(--border-subtle)] bg-[var(--surface-panel)] px-4 md:hidden">
-        <button
-          aria-label="Open menu"
-          onClick={() => setOpen(true)}
-          className="rounded-lg p-2 text-[color:var(--text-secondary)] hover:bg-[var(--control-hover)] focus-ring"
-        >
-          <Menu size={20} />
-        </button>
-        <div className="flex items-center gap-2">
-          <div className="grid h-7 w-7 place-items-center rounded-lg bg-brand-gradient text-white">
-            <Sparkles size={14} strokeWidth={2.4} />
-          </div>
-          <span className="text-sm font-semibold">Toolkit</span>
-        </div>
-        <button
-          type="button"
-          aria-label={theme === "dark" ? "切换到日间样式" : "切换到夜间样式"}
-          onClick={toggleTheme}
-          className="rounded-lg p-2 text-[color:var(--text-secondary)] hover:bg-[var(--control-hover)] focus-ring"
-        >
-          {theme === "dark" ? <Moon size={18} /> : <Sun size={18} />}
-        </button>
-      </header>
-
-      {/* Mobile drawer */}
-      <div
-        className={cn(
-          "md:hidden fixed inset-0 z-40 transition",
-          open ? "pointer-events-auto" : "pointer-events-none",
-        )}
-        aria-hidden={!open}
-      >
-        <div
-          onClick={() => setOpen(false)}
-          className={cn(
-            "absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity",
-            open ? "opacity-100" : "opacity-0",
-          )}
-        />
-        <div
-          className={cn(
-            "absolute inset-y-0 left-0 w-72 max-w-[80vw] transition-transform",
-            open ? "translate-x-0" : "-translate-x-full",
-          )}
-        >
-          <button
-            aria-label="Close menu"
-            onClick={() => setOpen(false)}
-            className="absolute right-3 top-3 z-10 rounded-lg p-1.5 text-[color:var(--text-tertiary)] hover:bg-[var(--control-hover)] hover:text-[color:var(--text-primary)] focus-ring"
-          >
-            <X size={18} />
-          </button>
-          <Sidebar onNavigate={() => setOpen(false)} theme={theme} onToggleTheme={toggleTheme} />
-        </div>
-      </div>
-
-      {/* Desktop sidebar */}
-      <div className="hidden md:block md:w-64 md:shrink-0 md:sticky md:top-0 md:h-screen">
+    <div className="min-h-dvh md:flex">
+      <a href="#main-content" className="skip-link focus-ring">跳到主要内容</a>
+      <Modal open={open} onClose={() => setOpen(false)} title="工作区导航" presentation="drawer">
+        <Sidebar onNavigate={() => setOpen(false)} theme={theme} onToggleTheme={toggleTheme} />
+      </Modal>
+      <div className="hidden md:sticky md:top-0 md:block md:h-dvh md:w-60 md:shrink-0">
         <Sidebar theme={theme} onToggleTheme={toggleTheme} />
       </div>
-
-      <main className="flex-1 min-w-0">
-        <div className="page-width px-4 py-6 sm:px-8 sm:py-8 lg:px-10 lg:py-10">
+      <div className="min-w-0 flex-1">
+        <header className="chrome sticky top-0 z-30 flex h-16 items-center justify-between gap-3 px-4 sm:px-8 lg:px-10">
+          <div className="flex min-w-0 items-center gap-2">
+            <button type="button" aria-label="打开导航" aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(true)} className="button icon-button focus-ring md:hidden"><Menu size={20} /></button>
+            <span className="hidden text-xs text-[color:var(--text-muted)] sm:inline">工作区</span>
+            <ChevronRight size={12} className="hidden text-[color:var(--text-faint)] sm:block" aria-hidden />
+            <span className="truncate text-sm font-medium">{pathname === "/" ? "概览" : pathname?.startsWith("/todos") ? "每日待办" : pathname?.startsWith("/learning") ? "学习资料" : pathname?.startsWith("/github") ? "项目分析" : "AI 设置"}</span>
+          </div>
+          <div className="flex items-center gap-3">
+            <Link href="/settings" className="quiet-link hidden rounded-lg text-xs focus-ring sm:inline">管理 AI 配置</Link>
+            <button type="button" aria-label={theme === "dark" ? "切换到日间样式" : "切换到夜间样式"} onClick={toggleTheme} className="button icon-button focus-ring md:hidden">{theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}</button>
+          </div>
+        </header>
+        <main id="main-content" tabIndex={-1} className="outline-none">
+        <div className="page-width px-4 pb-12 pt-7 sm:px-8 sm:pt-9 lg:px-10 lg:pt-11">
           {children}
         </div>
-      </main>
+        </main>
+      </div>
     </div>
   );
 }

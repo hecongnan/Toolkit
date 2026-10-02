@@ -23,7 +23,7 @@ export function RepoForm({ loading, onSubmit, onCancel }: Props) {
   };
 
   return (
-    <form onSubmit={submit} className="surface-strong p-5">
+    <form onSubmit={submit} className="surface p-5 sm:p-6">
       <div className="mb-4 flex items-center gap-2 text-sm text-zinc-400">
         <Github size={16} className="text-teal-300" />
         粘贴一个 GitHub 仓库地址，AI 将自动获取并生成分析报告
@@ -31,14 +31,15 @@ export function RepoForm({ loading, onSubmit, onCancel }: Props) {
       <div className="grid gap-3 sm:grid-cols-[1fr_auto_auto]">
         <Input
           required
+          aria-label="GitHub 仓库地址"
           value={repoUrl}
           onChange={(e) => setRepoUrl(e.target.value)}
           placeholder="https://github.com/vercel/next.js"
-          autoFocus
           disabled={loading}
         />
         <Input
           value={branch}
+          aria-label="仓库分支（可选）"
           onChange={(e) => setBranch(e.target.value)}
           placeholder="分支（可选）"
           className="sm:w-40"

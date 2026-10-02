@@ -67,7 +67,7 @@ export function TodoItem({
       onDrop={() => onDrop(todo.id)}
       onDragEnd={onDragEnd}
       className={cn(
-        "group flex flex-wrap items-center gap-2 px-3 py-3 transition sm:gap-3 sm:px-4",
+        "group flex flex-wrap items-center gap-2 px-3 py-3 sm:gap-3 sm:px-4",
         "hover:bg-white/[0.03]",
         reorderable && !disabled && "sm:cursor-grab sm:active:cursor-grabbing",
       )}
@@ -80,12 +80,12 @@ export function TodoItem({
         disabled={disabled}
         aria-label={todo.skipped ? "恢复这次任务" : todo.done ? "标记未完成" : "标记完成"}
         aria-pressed={todo.done}
-        className="grid h-11 w-11 shrink-0 place-items-center rounded-lg focus-ring disabled:opacity-50"
+        className="button grid h-11 w-11 shrink-0 place-items-center rounded-xl focus-ring disabled:opacity-50"
       >
         <span className={cn(
-          "grid h-5 w-5 place-items-center rounded-full border transition",
+          "grid h-5 w-5 place-items-center rounded-full border",
           todo.done
-            ? "border-teal-400/50 bg-brand-gradient text-white shadow-glow"
+            ? "border-blue-600 bg-blue-600 text-white"
             : "border-[color:var(--border-default)] hover:border-teal-400/40",
         )}>
         {todo.done && <Check size={12} strokeWidth={3} />}
@@ -105,7 +105,7 @@ export function TodoItem({
         </p>
         {(showDate || todo.scheduledTime || todo.repeat !== "none" || todo.occurrenceDate !== undefined) && (
           <div className="mt-1.5 flex flex-wrap items-center gap-3 text-[11px] text-zinc-500">
-            {showDate && <span className="text-amber-500">{todo.dueDate} · 逾期</span>}
+            {showDate && <span className="status-warning">{todo.dueDate} · 逾期</span>}
             {todo.occurrenceDate && todo.occurrenceDate !== todo.dueDate && <span>原定 {todo.occurrenceDate}</span>}
             {todo.scheduledTime && (
               <span className="inline-flex items-center gap-1">
@@ -127,7 +127,7 @@ export function TodoItem({
         P{todo.priority} · {PRIORITY_LABEL[todo.priority]}
       </Tag>
 
-      <div className="flex w-full shrink-0 items-center justify-end transition sm:w-auto sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">
+      <div className="todo-actions flex w-full shrink-0 flex-wrap items-center justify-end sm:w-auto">
         {reorderable && (
           <>
             <IconButton
@@ -180,9 +180,9 @@ function IconButton({
       aria-label={label}
       title={label}
       className={cn(
-        "grid h-11 w-11 place-items-center rounded-lg text-[color:var(--text-muted)] transition focus-ring disabled:cursor-not-allowed disabled:opacity-25",
+        "button icon-button focus-ring disabled:cursor-not-allowed disabled:opacity-25",
         danger
-          ? "hover:bg-rose-500/10 hover:text-rose-300"
+          ? "status-error"
           : "hover:bg-white/5 hover:text-zinc-100",
       )}
     >

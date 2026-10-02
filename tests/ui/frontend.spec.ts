@@ -1,0 +1,284 @@
+import { test, expect, type Page, type BrowserContext } from "@playwright/test";
+
+const host = "frontend-preview.supabase.co";
+const userId = "11111111-1111-4111-8111-111111111111";
+const timestamp = new Date().toISOString();
+const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai" }).format(new Date());
+const user = { id: userId, email: "preview@example.test", aud: "authenticated", role: "authenticated", app_metadata: { provider: "email" }, user_metadata: {}, created_at: timestamp };
+
+async function isolate(page: Page, context: BrowserContext, authenticated = true) {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  if (authenticated) {
+    const exp = Math.floor(Date.now() / 1000) + 3600;
+    const encode = (value: unknown) => Buffer.from(JSON.stringify(value)).toString("base64url");
+    const session = { access_token: `${encode({ alg: "HS256", typ: "JWT" })}.${encode({ sub: userId, exp, aud: "authenticated", role: "authenticated" })}.preview`, refresh_token: "preview-only", token_type: "bearer", expires_in: 3600, expires_at: exp, user };
+    await context.addCookies([{ name: "sb-frontend-preview-auth-token", value: "base64-" + encode(session), domain: "127.0.0.1", path: "/" }]);
+  }
+  const todos = [
+    { id: "22222222-2222-4222-8222-222222222222", user_id: userId, text: "每天读书", priority: 2, done: false, skipped: false, repeat_rule: "daily", series_id: "22222222-2222-4222-8222-222222222222", due_date: today, occurrence_date: today, scheduled_time: "08:30:00", position: 1024, created_at: timestamp, updated_at: timestamp },
+    { id: "33333333-3333-4333-8333-333333333333", user_id: userId, text: "整理学习资料", priority: 1, done: true, skipped: false, repeat_rule: "none", series_id: null, due_date: today, occurrence_date: null, scheduled_time: null, position: 2048, created_at: timestamp, updated_at: timestamp },
+  ];
+  const materials = [
+    { id: "44444444-4444-4444-8444-444444444444", user_id: userId, title: "React 组件设计笔记", category: "前端", tags: ["React", "组件"], status: "doing", priority: 2, notes: "把复杂的问题拆成小而清晰的组件。", url: "https://react.dev", created_at: timestamp, updated_at: timestamp },
+    { id: "55555555-5555-4555-8555-555555555555", user_id: userId, title: "无障碍界面实践", category: "设计", tags: ["A11y"], status: "todo", priority: 1, notes: "为键盘、触摸和不同的视觉需求留出空间。", url: null, created_at: timestamp, updated_at: timestamp },
+  ];
+  const reports = [{ id: "66666666-6666-4666-8666-666666666666", user_id: userId, repo_url: "https://github.com/example/toolkit", owner: "example", repo: "toolkit", branch: "main", summary: "一个清晰、专注的个人工作区。", markdown: "# 项目概览\n\n一个清晰、专注的个人工作区。\n\n## 架构\n\n| 层级 | 说明 |\n| --- | --- |\n| 前端 | React + Next.js |\n| 数据 | Supabase |\n\n## 改进方向\n\n- 统一组件与交互\n- 关注无障碍与移动体验\n", created_at: timestamp }];
+  const state = { errors, failMaterial: false, materialWrites: 0, materialIds: [] as string[] };
+  await page.route("**/*", async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    if (url.hostname === "127.0.0.1") return route.continue();
+    // Deny every unexpected external request, including actual AI calls.
+    if (url.hostname !== host) { errors.push(`Unexpected external request: ${url.hostname}`); return route.abort(); }
+    const respond = (data: unknown, status = 200, headers: Record<string, string> = {}) => route.fulfill({ status, contentType: "application/json", headers: { "access-control-allow-origin": "*", "access-control-expose-headers": "content-range", ...headers }, body: JSON.stringify(data) });
+    if (request.method() === "OPTIONS") return respond(null);
+    if (url.pathname === "/auth/v1/user") return respond(authenticated ? user : { message: "No session" }, authenticated ? 200 : 401);
+    if (url.pathname.startsWith("/rest/v1/rpc/")) return respond(null);
+    if (url.pathname === "/rest/v1/todos") {
+      const due = url.searchParams.get("due_date");
+      const data = todos.filter((row) => !due || (due.startsWith("eq.") ? row.due_date === due.slice(3) : row.due_date < due.slice(3)));
+      return respond(data, 200, { "content-range": `0-${Math.max(data.length - 1, 0)}/${data.length}` });
+    }
+    if (url.pathname === "/rest/v1/materials") {
+      if (request.method() !== "GET") {
+        state.materialWrites++;
+        state.materialIds.push(request.postDataJSON().id);
+        if (state.failMaterial) return respond({ message: "模拟保存失败，请重试", code: "P0001" }, 400);
+        return respond(null);
+      }
+      return respond(materials);
+    }
+    if (url.pathname === "/rest/v1/analysis_reports") return respond(reports);
+    if (url.pathname === "/rest/v1/analysis_chats") return respond([]);
+    errors.push(`Unhandled preview request: ${url.pathname}`);
+    return respond({ message: "Unhandled preview request" }, 400);
+  });
+  return state;
+}
+
+async function noOverflow(page: Page) {
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+}
+
+for (const mode of [
+  { name: "desktop light", width: 1440, theme: "light" },
+  { name: "desktop dark", width: 1440, theme: "dark" },
+  { name: "mobile light", width: 375, theme: "light" },
+  { name: "mobile dark", width: 375, theme: "dark" },
+] as const) {
+  test(`${mode.name}: all workspace routes have no overflow or runtime errors`, async ({ page, context }, info) => {
+    await page.setViewportSize({ width: mode.width, height: 1000 });
+    await page.addInitScript((theme) => localStorage.setItem("toolkit-theme", theme), mode.theme);
+    const state = await isolate(page, context);
+    for (const [path, title, content] of [
+      ["/", "今天，专注重要的事。", "每天读书"],
+      ["/todos", "每日待办", "每天读书"],
+      ["/learning", "学习资料", "React 组件设计笔记"],
+      ["/github", "项目分析", "example/toolkit"],
+      ["/settings", "AI 设置", "DeepSeek"],
+    ]) {
+      await page.goto(path);
+      await expect(page.getByRole("heading", { level: 1, name: title })).toBeVisible();
+      await expect(page.getByText(content, { exact: true }).first()).toBeVisible();
+      await expect(page.locator("html")).toHaveAttribute("data-theme", mode.theme);
+      await noOverflow(page);
+      await page.screenshot({ path: info.outputPath(`${path.replaceAll("/", "") || "overview"}.png`), fullPage: true });
+    }
+    expect(state.errors).toEqual([]);
+  });
+}
+
+test("native dialog traps focus, restores the trigger, and opens instantly from keyboard", async ({ page, context }) => {
+  await isolate(page, context);
+  await page.goto("/todos");
+  const trigger = page.locator("div.group").filter({ has: page.getByText("每天读书", { exact: true }) }).getByRole("button", { name: "编辑", exact: true });
+  await trigger.focus();
+  await page.keyboard.press("Enter");
+  const dialog = page.getByRole("dialog", { name: "编辑任务" });
+  await expect(dialog.getByLabel("任务内容")).toBeFocused();
+  expect(await dialog.locator(".modal-panel").evaluate((element) => getComputedStyle(element).transitionDuration.split(",").every((duration) => parseFloat(duration) === 0))).toBe(true);
+  for (let index = 0; index < 20; index++) {
+    await page.keyboard.press(index % 3 ? "Tab" : "Shift+Tab");
+    expect(await dialog.evaluate((element) => element.contains(document.activeElement))).toBe(true);
+  }
+  await page.keyboard.press("Escape");
+  await expect(dialog).not.toBeVisible();
+  await expect(trigger).toBeFocused();
+  // Opening again must not wait for the previous exit animation/DOM cleanup.
+  await page.keyboard.press("Enter");
+  await expect(dialog.getByLabel("任务内容")).toBeFocused();
+  await page.keyboard.press("Escape");
+});
+
+test("mobile drawer is modal, returns focus, navigates and closes when resized", async ({ page, context }, info) => {
+  await isolate(page, context);
+  await page.setViewportSize({ width: 375, height: 900 });
+  await page.goto("/todos");
+  const trigger = page.getByRole("button", { name: "打开导航" });
+  await trigger.click();
+  const dialog = page.getByRole("dialog", { name: "工作区导航" });
+  await expect(dialog).toBeVisible();
+  for (let index = 0; index < 12; index++) {
+    await page.keyboard.press("Tab");
+    expect(await dialog.evaluate((element) => element.contains(document.activeElement))).toBe(true);
+  }
+  await page.screenshot({ path: info.outputPath("mobile-drawer.png") });
+  await page.keyboard.press("Escape");
+  await expect(trigger).toBeFocused();
+  await trigger.click();
+  await dialog.getByRole("link", { name: "学习资料", exact: true }).click();
+  await expect(page.getByRole("heading", { level: 1, name: "学习资料" })).toBeVisible();
+  await expect(dialog).not.toBeVisible();
+  await trigger.click();
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await expect(dialog).not.toBeVisible();
+  await expect(page.locator("body")).not.toHaveCSS("overflow", "hidden");
+});
+
+test("theme follows system until explicitly chosen, then survives reload", async ({ page, context }) => {
+  await isolate(page, context);
+  await page.emulateMedia({ colorScheme: "dark" });
+  await page.goto("/settings");
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  await page.emulateMedia({ colorScheme: "light" });
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+  await page.getByRole("button", { name: "切换到夜间样式", exact: true }).click();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  await page.reload();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+});
+
+test("small text theme tokens meet 4.5:1 against the application surfaces", async ({ page, context }) => {
+  await isolate(page, context);
+  await page.goto("/settings");
+  const ratios = await page.evaluate(() => {
+    const luminance = (hex: string) => {
+      const raw = hex.trim().replace("#", "");
+      const full = raw.length === 3 ? raw.split("").map((value) => value + value).join("") : raw;
+      const values = full.match(/.{2}/g)!.map((value) => parseInt(value, 16) / 255).map((value) => value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4);
+      return values[0] * 0.2126 + values[1] * 0.7152 + values[2] * 0.0722;
+    };
+    const results: { theme: string; foreground: string; background: string; ratio: number }[] = [];
+    for (const theme of ["light", "dark"]) {
+      document.documentElement.dataset.theme = theme;
+      const style = getComputedStyle(document.documentElement);
+      for (const foreground of ["--text-primary", "--text-secondary", "--text-tertiary", "--text-muted", "--text-faint"]) {
+        for (const background of ["--app-bg", "--surface", "--surface-panel", "--control-bg"]) {
+          const a = luminance(style.getPropertyValue(foreground));
+          const b = luminance(style.getPropertyValue(background));
+          results.push({ theme, foreground, background, ratio: (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05) });
+        }
+      }
+    }
+    return results;
+  });
+  for (const result of ratios) expect(result.ratio, JSON.stringify(result)).toBeGreaterThanOrEqual(4.5);
+});
+
+test("reduced motion removes panel movement and touch controls have 44px targets", async ({ page, context }, info) => {
+  await isolate(page, context);
+  await page.setViewportSize({ width: 320, height: 900 });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto("/todos");
+  const row = page.locator("div.group").filter({ has: page.getByText("每天读书", { exact: true }) });
+  await expect(row).toBeVisible();
+  await noOverflow(page);
+  for (const button of await row.getByRole("button").all()) {
+    const box = await button.boundingBox();
+    expect(box?.width).toBeGreaterThanOrEqual(44);
+    expect(box?.height).toBeGreaterThanOrEqual(44);
+  }
+  await row.getByRole("button", { name: "编辑", exact: true }).click();
+  await expect(page.getByRole("dialog").locator(".modal-panel")).toHaveCSS("transform", "none");
+  await page.screenshot({ path: info.outputPath("mobile-edit.png") });
+  await noOverflow(page);
+});
+
+test("material save failure stays inside the dialog and retains the draft", async ({ page, context }) => {
+  const state = await isolate(page, context);
+  state.failMaterial = true;
+  await page.goto("/learning");
+  await page.getByRole("button", { name: "添加资料", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "添加资料" });
+  await dialog.getByLabel("标题").fill("保存失败后仍保留这段内容");
+  await dialog.getByRole("button", { name: "添加", exact: true }).click();
+  await expect(dialog.getByRole("alert")).toContainText("模拟保存失败");
+  await expect(dialog.getByLabel("标题")).toHaveValue("保存失败后仍保留这段内容");
+  state.failMaterial = false;
+  await dialog.getByRole("button", { name: "添加", exact: true }).click();
+  await expect(dialog).not.toBeVisible();
+  expect(state.materialWrites).toBe(2);
+  expect(state.materialIds[0]).toBe(state.materialIds[1]);
+});
+
+test("material creation gets a fresh draft when reopened during the exit transition", async ({ page, context }) => {
+  const state = await isolate(page, context);
+  await page.goto("/learning");
+  await page.getByRole("button", { name: "添加资料", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "添加资料" });
+  await dialog.getByLabel("标题").fill("第一份资料");
+  // Reopen as soon as the native dialog closes, before its exit cleanup finishes.
+  await dialog.evaluate((element) => {
+    element.addEventListener("close", () => {
+      const button = Array.from(document.querySelectorAll<HTMLButtonElement>("main button")).find((item) => item.textContent?.trim() === "添加资料");
+      button?.click();
+    }, { once: true });
+  });
+  await dialog.getByRole("button", { name: "添加", exact: true }).click();
+  await expect(dialog.getByLabel("标题")).toHaveValue("");
+  await dialog.getByLabel("标题").fill("第二份资料");
+  await dialog.getByRole("button", { name: "添加", exact: true }).click();
+  await expect(dialog).not.toBeVisible();
+  expect(state.materialIds).toHaveLength(2);
+  expect(state.materialIds[0]).not.toBe(state.materialIds[1]);
+});
+
+test("mobile layout accommodates enlarged text without horizontal scrolling", async ({ page, context }) => {
+  await isolate(page, context);
+  await page.setViewportSize({ width: 375, height: 1000 });
+  for (const path of ["/todos", "/learning", "/settings"]) {
+    await page.goto(path);
+    await expect(page.locator("#main-content h1")).toBeVisible();
+    await page.evaluate(() => { document.documentElement.style.fontSize = "200%"; });
+    await noOverflow(page);
+  }
+});
+
+test("report clipboard feedback and persistent AI sheet remain usable", async ({ page, context }, info) => {
+  const state = await isolate(page, context);
+  await page.addInitScript(() => {
+    let calls = 0;
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async () => { if (++calls === 1) throw new Error("preview clipboard failure"); } } });
+  });
+  await page.goto("/github");
+  await page.getByRole("button", { name: /example\/toolkit/ }).click();
+  await page.getByRole("button", { name: "复制", exact: true }).click();
+  await expect(page.getByRole("status").filter({ hasText: "复制失败" })).toBeVisible();
+  await page.getByRole("button", { name: "复制", exact: true }).click();
+  await expect(page.getByRole("button", { name: "已复制" })).toBeVisible();
+  await page.getByRole("button", { name: "问 AI", exact: true }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByLabel("向 AI 追问")).toBeVisible();
+  await dialog.getByLabel("向 AI 追问").fill("关闭后保留的草稿");
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "问 AI", exact: true }).click();
+  await expect(dialog.getByLabel("向 AI 追问")).toHaveValue("关闭后保留的草稿");
+  await page.screenshot({ path: info.outputPath("report-chat.png"), fullPage: true });
+  expect(state.errors).toEqual([]);
+});
+
+test("login, registration and recovery pages stay accessible without a session", async ({ page, context }, info) => {
+  const state = await isolate(page, context, false);
+  await page.setViewportSize({ width: 375, height: 900 });
+  for (const [path, heading] of [["/login", "欢迎回到 Toolkit"], ["/register", "开启你的个人工作区"], ["/forgot-password", "找回密码"], ["/update-password", "设置新密码"]]) {
+    await page.goto(path);
+    await expect(page.getByRole("heading", { name: heading })).toBeVisible();
+    await noOverflow(page);
+    await page.screenshot({ path: info.outputPath(`${path.slice(1)}.png`), fullPage: true });
+  }
+  await page.goto("/todos");
+  await expect(page).toHaveURL(/\/login\?next=/);
+  await expect(page.getByRole("heading", { name: "欢迎回到 Toolkit" })).toBeVisible();
+  expect(state.errors).toEqual([]);
+});

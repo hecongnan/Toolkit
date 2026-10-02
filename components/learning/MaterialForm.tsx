@@ -11,6 +11,8 @@ interface Props {
   initial?: Material | null;
   onSubmit: (m: Material) => void;
   onCancel: () => void;
+  saving?: boolean;
+  error?: string | null;
 }
 
 const STATUS_OPTIONS: Array<{ value: MaterialStatus; label: string }> = [
@@ -19,7 +21,7 @@ const STATUS_OPTIONS: Array<{ value: MaterialStatus; label: string }> = [
   { value: "done", label: "已完成" },
 ];
 
-export function MaterialForm({ initial, onSubmit, onCancel }: Props) {
+export function MaterialForm({ initial, onSubmit, onCancel, saving = false, error }: Props) {
   const [title, setTitle] = useState("");
   const [url, setUrl] = useState("");
   const [category, setCategory] = useState("");
@@ -27,6 +29,7 @@ export function MaterialForm({ initial, onSubmit, onCancel }: Props) {
   const [status, setStatus] = useState<MaterialStatus>("todo");
   const [priority, setPriority] = useState<1 | 2 | 3>(2);
   const [notes, setNotes] = useState("");
+  const [draftId] = useState(uid);
 
   useEffect(() => {
     if (initial) {
@@ -50,14 +53,14 @@ export function MaterialForm({ initial, onSubmit, onCancel }: Props) {
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title.trim()) return;
+    if (!title.trim() || saving) return;
     const now = Date.now();
     const tags = tagsText
       .split(",")
       .map((t) => t.trim())
       .filter(Boolean);
     const next: Material = {
-      id: initial?.id ?? uid(),
+      id: initial?.id ?? draftId,
       title: title.trim(),
       url: url.trim() || undefined,
       category: category.trim() || "未分类",
@@ -73,6 +76,7 @@ export function MaterialForm({ initial, onSubmit, onCancel }: Props) {
 
   return (
     <form onSubmit={submit} className="space-y-4">
+      <fieldset disabled={saving} className="space-y-4">
       <Field label="标题" required>
         <Input
           autoFocus
@@ -117,11 +121,12 @@ export function MaterialForm({ initial, onSubmit, onCancel }: Props) {
                 type="button"
                 key={opt.value}
                 onClick={() => setStatus(opt.value)}
+                aria-pressed={status === opt.value}
                 className={
-                  "flex-1 rounded-lg border px-3 py-2 text-xs font-medium transition focus-ring " +
+                  "button min-h-11 flex-1 rounded-xl border px-3 text-xs font-medium focus-ring " +
                   (status === opt.value
-                    ? "border-teal-400/50 bg-brand-gradient-soft text-zinc-50"
-                    : "border-white/10 bg-white/[0.03] text-zinc-400 hover:text-zinc-100")
+                    ? "border-[color:var(--accent)] bg-[var(--accent-soft)] text-[color:var(--accent)]"
+                    : "button-secondary")
                 }
               >
                 {opt.label}
@@ -136,14 +141,15 @@ export function MaterialForm({ initial, onSubmit, onCancel }: Props) {
                 type="button"
                 key={p}
                 onClick={() => setPriority(p as 1 | 2 | 3)}
+                aria-pressed={priority === p}
                 className={
-                  "flex-1 rounded-lg border px-3 py-2 text-xs font-medium transition focus-ring " +
+                  "button min-h-11 flex-1 rounded-xl border px-3 text-xs font-medium focus-ring " +
                   (priority === p
-                    ? "border-teal-400/50 bg-brand-gradient-soft text-zinc-50"
-                    : "border-white/10 bg-white/[0.03] text-zinc-400 hover:text-zinc-100")
+                    ? "border-[color:var(--accent)] bg-[var(--accent-soft)] text-[color:var(--accent)]"
+                    : "button-secondary")
                 }
               >
-                P{p}
+                {["高", "中", "低"][p - 1]} · P{p}
               </button>
             ))}
           </div>
@@ -158,14 +164,16 @@ export function MaterialForm({ initial, onSubmit, onCancel }: Props) {
         />
       </Field>
 
-      <div className="flex justify-end gap-2 pt-2">
+      {error && <p role="alert" className="status-error text-sm">{error}</p>}
+      <div className="flex justify-end gap-2 border-t border-[color:var(--border-subtle)] pt-4">
         <Button type="button" variant="ghost" onClick={onCancel}>
           取消
         </Button>
-        <Button type="submit" variant="primary">
-          {initial ? "保存" : "添加"}
+        <Button type="submit" variant="primary" disabled={!title.trim() || saving}>
+          {saving ? "正在保存..." : initial ? "保存" : "添加"}
         </Button>
       </div>
+      </fieldset>
     </form>
   );
 }

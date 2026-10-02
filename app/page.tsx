@@ -244,9 +244,10 @@ export default function DashboardPage() {
   return (
     <>
       <PageHeader
-        eyebrow="Dashboard"
-        title="欢迎回来"
+        eyebrow="个人概览"
+        title="今天，专注重要的事。"
         description={formatToday()}
+        action={<Link href="/todos" className="button button-primary inline-flex min-h-11 items-center justify-center gap-2 rounded-xl px-4 text-sm font-medium focus-ring">安排今日待办 <ArrowRight size={15} /></Link>}
       />
 
       {error && (
@@ -293,7 +294,7 @@ export default function DashboardPage() {
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             <StatCard
               icon={<CheckCircle2 size={18} />}
-              label="今日 Todo"
+              label="今日待办"
               value={`${completedToday}/${todaysTodos.length}`}
               hint={
                 todaysTodos.length === 0
@@ -316,9 +317,9 @@ export default function DashboardPage() {
             />
             <StatCard
               icon={<Github size={18} />}
-              label="已分析仓库"
+              label="最近分析"
               value={`${reports.length}`}
-              hint={reports.length ? "查看历史报告" : "粘贴一个 URL 试试"}
+              hint={reports.length ? "查看最近的项目报告" : "从一个 GitHub 项目开始"}
               href="/github"
             />
           </div>
@@ -332,7 +333,7 @@ export default function DashboardPage() {
                 </div>
                 <Link
                   href="/todos"
-                  className="text-xs text-zinc-400 hover:text-zinc-100 inline-flex items-center gap-1"
+                  className="quiet-link inline-flex min-h-11 items-center gap-1 rounded-lg text-xs focus-ring"
                 >
                   全部
                   <ArrowRight size={12} />
@@ -386,7 +387,7 @@ export default function DashboardPage() {
                 </div>
                 <Link
                   href="/github"
-                  className="text-xs text-zinc-400 hover:text-zinc-100 inline-flex items-center gap-1"
+                  className="quiet-link inline-flex min-h-11 items-center gap-1 rounded-lg text-xs focus-ring"
                 >
                   全部
                   <ArrowRight size={12} />
@@ -440,20 +441,20 @@ function StatCard({
 }) {
   return (
     <Link href={href} className="group block focus-ring rounded-2xl">
-      <Card className="h-full group-hover:-translate-y-0.5">
+      <Card className="stat-card h-full">
         <div className="mb-4 flex items-center justify-between">
-          <div className="grid h-10 w-10 place-items-center rounded-xl bg-white/[0.04] text-teal-300 ring-1 ring-white/10">
+          <div className="grid h-10 w-10 place-items-center rounded-xl bg-[var(--accent-soft)] text-[color:var(--accent)]">
             {icon}
           </div>
-          <ArrowRight size={16} className="text-zinc-600 transition group-hover:translate-x-0.5 group-hover:text-zinc-300" />
+          <ArrowRight size={16} className="text-[color:var(--text-faint)]" />
         </div>
         <p className="text-sm text-zinc-400">{label}</p>
-        <p className="mt-1 text-3xl font-semibold tracking-tight text-zinc-50">{value}</p>
+        <p className="mt-2 text-4xl font-semibold tabular-nums tracking-[-0.04em] text-zinc-50">{value}</p>
         <p className="mt-2 text-xs text-zinc-500">{hint}</p>
         {typeof progress === "number" && (
-          <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-white/5">
+          <div role="progressbar" aria-label="今日待办完成度" aria-valuenow={progress} aria-valuemin={0} aria-valuemax={100} className="mt-4 h-1.5 overflow-hidden rounded-full bg-[var(--control-bg)]">
             <div
-              className="h-full rounded-full bg-brand-gradient transition-all"
+              className="h-full rounded-full bg-blue-500"
               style={{ width: `${progress}%` }}
             />
           </div>
