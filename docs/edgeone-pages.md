@@ -65,6 +65,7 @@ https://<EdgeOne 域名>/**
 ```
 
 若以后绑定自定义域名，也要将自定义域名加入允许列表。
+找回密码使用 `/auth/callback`，因此正式域名的 Redirect URLs 必须覆盖 `https://<你的域名>/auth/callback`；本地调试时再加入 `http://localhost:3000/auth/callback`。修改 Supabase 允许列表后，无需重新执行数据库 SQL。
 
 ## 5. 自动部署
 

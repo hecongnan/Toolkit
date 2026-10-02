@@ -4,6 +4,7 @@ import { Github } from "lucide-react";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { PageHeader } from "@/components/shell/PageHeader";
+import { Button } from "@/components/ui/Button";
 import { FloatingAnalysisChat } from "@/components/github/FloatingAnalysisChat";
 import { HistoryList } from "@/components/github/HistoryList";
 import { RepoForm } from "@/components/github/RepoForm";
@@ -44,6 +45,7 @@ function GitHubPageInner() {
   const [isStreaming, setIsStreaming] = useState(false);
   const [pendingRepoUrl, setPendingRepoUrl] = useState<string>("");
   const [loadingHistory, setLoadingHistory] = useState(true);
+  const [historyError, setHistoryError] = useState<string | null>(null);
   const [isAiOpen, setIsAiOpen] = useState(false);
 
   const abortRef = useRef<AbortController | null>(null);
@@ -53,7 +55,7 @@ function GitHubPageInner() {
 
   const loadReports = useCallback(async () => {
     setLoadingHistory(true);
-    setError(null);
+    setHistoryError(null);
     try {
       const supabase = createClient();
       const { data, error: queryError } = await supabase
@@ -64,7 +66,7 @@ function GitHubPageInner() {
       if (queryError) throw queryError;
       setReports(((data ?? []) as AnalysisReportRow[]).map(toAnalysisReport));
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "加载历史报告失败");
+      setHistoryError(err instanceof Error ? err.message : "加载历史报告失败");
     } finally {
       setLoadingHistory(false);
     }
@@ -321,6 +323,12 @@ function GitHubPageInner() {
             {loadingHistory ? (
               <div className="surface flex justify-center py-10">
                 <span className="text-sm text-zinc-500">正在加载历史...</span>
+              </div>
+            ) : historyError ? (
+              <div className="surface space-y-3 p-5 text-sm">
+                <p className="font-medium text-rose-200">历史报告加载失败</p>
+                <p className="text-rose-100/80">{historyError}</p>
+                <Button size="sm" onClick={loadReports}>重试加载</Button>
               </div>
             ) : (
               <HistoryList

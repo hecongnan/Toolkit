@@ -83,7 +83,7 @@ npm run start
 3. Authentication → Providers 中启用 Email。
 4. 如果开启邮箱确认，在 Authentication → URL Configuration 配置：
    - Site URL：本地 `http://localhost:3000`，生产填 EdgeOne 正式域名
-   - Redirect URLs：加入本地地址和 EdgeOne 正式域名
+   - Redirect URLs：至少加入 `http://localhost:3000/auth/callback` 和 `https://你的正式域名/auth/callback`，用于密码重置邮件；也可按需加入站点的其他登录回调地址
 5. 把项目 URL 和 anon key 填入 `.env.local` / EdgeOne Environment Variables。
 
 已有数据库升级到 Todo 2.0 时，在 SQL Editor 执行 `lib/supabase/migrations/20260913_todo_v2.sql`。迁移是幂等的，不会删除现有数据。
@@ -101,14 +101,14 @@ npm run start
    - `GITHUB_TOKEN`（可选）
 5. 部署完成后，将 EdgeOne 正式域名加入 Supabase 的 `Site URL` 和 `Redirect URLs`。
 
-EdgeOne 会自动使用 OpenNext 适配器保留 SSR、Middleware 和 API Route，不要改成 `output: "export"`。完整步骤见 [`docs/edgeone-pages.md`](docs/edgeone-pages.md)。
+EdgeOne 会自动使用 OpenNext 适配器保留 SSR 和 API Route。当前项目为兼容 EdgeOne 不使用 Middleware；不要改成 `output: "export"`。完整步骤见 [`docs/edgeone-pages.md`](docs/edgeone-pages.md)。
 
 ---
 
 ## 功能介绍
 
 ### 登录注册（`/login`、`/register`）
-- 邮箱密码注册/登录
+- 邮箱密码注册/登录；支持重发验证邮件、找回密码和设置新密码
 - 未登录访问主应用会自动跳转登录页
 - 侧边栏显示当前账号并支持退出登录
 

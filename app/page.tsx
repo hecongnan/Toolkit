@@ -70,12 +70,14 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [migrating, setMigrating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
 
   const today = todayKey();
 
   const loadDashboard = useCallback(async () => {
     setLoading(true);
     setError(null);
+    setLoadFailed(false);
     try {
       const supabase = createClient();
       const {
@@ -114,6 +116,7 @@ export default function DashboardPage() {
       setLegacyCounts(getLegacyCounts());
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "加载数据失败");
+      setLoadFailed(true);
     } finally {
       setLoading(false);
     }
@@ -133,31 +136,85 @@ export default function DashboardPage() {
       const oldTodos = readStorage<Todo[]>(STORAGE_KEYS.todos, []);
       const oldReports = readStorage<AnalysisReport[]>(STORAGE_KEYS.reports, []);
 
-      if (oldMaterials.length) {
-        const { error: insertError } = await supabase
+      const saveRemaining = <T,>(key: string, remaining: T[]) => {
+        if (remaining.length) {
+          window.localStorage.setItem(key, JSON.stringify(remaining));
+        } else {
+          window.localStorage.removeItem(key);
+        }
+        setLegacyCounts(getLegacyCounts());
+      };
+
+      // Check the cloud before each insert. An earlier attempt may have written
+      // a record even if the browser never received the response.
+      while (oldMaterials.length) {
+        const item = oldMaterials[0];
+        const createdAt = new Date(item.createdAt).toISOString();
+        const { data: existing, error: lookupError } = await supabase
           .from("materials")
-          .insert(oldMaterials.map((item) => fromLocalMaterial(item, userId)));
-        if (insertError) throw insertError;
-      }
-      if (oldTodos.length) {
-        const { error: insertError } = await supabase
-          .from("todos")
-          .insert(oldTodos.map((item) => fromLocalTodo(item, userId)));
-        if (insertError) throw insertError;
-      }
-      if (oldReports.length) {
-        const { error: insertError } = await supabase
-          .from("analysis_reports")
-          .insert(oldReports.map((item) => fromLocalAnalysisReport(item, userId)));
-        if (insertError) throw insertError;
+          .select("id")
+          .eq("user_id", userId)
+          .eq("title", item.title)
+          .eq("created_at", createdAt)
+          .limit(1);
+        if (lookupError) throw lookupError;
+        if (!existing?.length) {
+          const { error: insertError } = await supabase
+            .from("materials")
+            .insert(fromLocalMaterial(item, userId));
+          if (insertError) throw insertError;
+        }
+        oldMaterials.shift();
+        saveRemaining(STORAGE_KEYS.materials, oldMaterials);
       }
 
-      window.localStorage.removeItem(STORAGE_KEYS.materials);
-      window.localStorage.removeItem(STORAGE_KEYS.todos);
-      window.localStorage.removeItem(STORAGE_KEYS.reports);
-      setLegacyCounts(null);
+      while (oldTodos.length) {
+        const item = oldTodos[0];
+        const createdAt = new Date(item.createdAt).toISOString();
+        const { data: existing, error: lookupError } = await supabase
+          .from("todos")
+          .select("id")
+          .eq("user_id", userId)
+          .eq("text", item.text)
+          .eq("due_date", item.dueDate)
+          .eq("created_at", createdAt)
+          .limit(1);
+        if (lookupError) throw lookupError;
+        if (!existing?.length) {
+          const { error: insertError } = await supabase
+            .from("todos")
+            .insert(fromLocalTodo(item, userId));
+          if (insertError) throw insertError;
+        }
+        oldTodos.shift();
+        saveRemaining(STORAGE_KEYS.todos, oldTodos);
+      }
+
+      while (oldReports.length) {
+        const item = oldReports[0];
+        const createdAt = new Date(item.createdAt).toISOString();
+        const { data: existing, error: lookupError } = await supabase
+          .from("analysis_reports")
+          .select("id")
+          .eq("user_id", userId)
+          .eq("repo_url", item.repoUrl)
+          .eq("created_at", createdAt)
+          .limit(1);
+        if (lookupError) throw lookupError;
+        if (!existing?.length) {
+          const { error: insertError } = await supabase
+            .from("analysis_reports")
+            .insert(fromLocalAnalysisReport(item, userId));
+          if (insertError) throw insertError;
+        }
+        oldReports.shift();
+        saveRemaining(STORAGE_KEYS.reports, oldReports);
+      }
+
+      setLegacyCounts(getLegacyCounts());
       await loadDashboard();
     } catch (err: unknown) {
+      setLegacyCounts(getLegacyCounts());
       setError(err instanceof Error ? err.message : "导入旧数据失败");
     } finally {
       setMigrating(false);
@@ -189,8 +246,9 @@ export default function DashboardPage() {
 
       {error && (
         <Card className="mb-6 border-rose-500/30 bg-rose-500/5">
-          <p className="text-sm font-semibold text-rose-200">加载失败</p>
+          <p className="text-sm font-semibold text-rose-200">{loadFailed ? "加载失败" : "操作未完成"}</p>
           <p className="mt-1 text-sm text-rose-100/80">{error}</p>
+          {loadFailed && <Button className="mt-3" onClick={loadDashboard}>重试加载</Button>}
         </Card>
       )}
 
@@ -225,7 +283,7 @@ export default function DashboardPage() {
         <div className="flex justify-center py-16">
           <Spinner size={22} />
         </div>
-      ) : (
+      ) : loadFailed ? null : (
         <>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             <StatCard

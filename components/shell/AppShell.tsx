@@ -1,21 +1,23 @@
 "use client";
 
-import { Menu, Moon, Sparkles, Sun, X } from "lucide-react";
+import { Menu, Moon, RotateCcw, Sparkles, Sun, X } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
 import { useRouter } from "next/navigation";
 import { Sidebar } from "./Sidebar";
 import { cn } from "@/lib/cn";
 import { createClient } from "@/lib/supabase/client";
+import { isMissingSessionError } from "@/lib/auth-errors";
 
-const AUTH_ROUTES = ["/login", "/register"];
+const AUTH_ROUTES = ["/login", "/register", "/forgot-password", "/update-password"];
 const PROTECTED_ROUTES = ["/", "/learning", "/todos", "/github", "/settings"];
 type Theme = "dark" | "light";
 
 export function AppShell({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false);
   const [theme, setTheme] = useState<Theme>("dark");
-  const [authReady, setAuthReady] = useState(false);
+  const [authStatus, setAuthStatus] = useState<"checking" | "ready" | "error">("checking");
+  const [authRetry, setAuthRetry] = useState(0);
   const pathname = usePathname();
   const router = useRouter();
 
@@ -29,33 +31,34 @@ export function AppShell({ children }: { children: ReactNode }) {
   // in the browser while API routes continue to validate the Supabase cookie.
   useEffect(() => {
     let active = true;
-    setAuthReady(false);
+    setAuthStatus("checking");
 
     try {
       const supabase = createClient();
-      supabase.auth.getUser().then(({ data: { user } }) => {
+      supabase.auth.getUser().then(({ data: { user }, error }) => {
         if (!active) return;
+        if (error && !isMissingSessionError(error)) throw error;
         if (!user && isProtectedRoute) {
           const next = pathname && pathname !== "/" ? `?next=${encodeURIComponent(pathname)}` : "";
           router.replace(`/login${next}`);
           return;
         }
-        if (user && isAuthRoute) {
+        if (user && isAuthRoute && pathname !== "/update-password") {
           router.replace("/");
           return;
         }
-        setAuthReady(true);
+        setAuthStatus("ready");
       }).catch(() => {
-        if (active) setAuthReady(true);
+        if (active) setAuthStatus("error");
       });
     } catch {
-      setAuthReady(true);
+      setAuthStatus("error");
     }
 
     return () => {
       active = false;
     };
-  }, [isAuthRoute, isProtectedRoute, pathname, router]);
+  }, [authRetry, isAuthRoute, isProtectedRoute, pathname, router]);
 
   useEffect(() => {
     const saved = window.localStorage.getItem("toolkit-theme");
@@ -90,10 +93,24 @@ export function AppShell({ children }: { children: ReactNode }) {
     return <>{children}</>;
   }
 
-  if (isProtectedRoute && !authReady) {
+  if (isProtectedRoute && authStatus !== "ready") {
     return (
-      <div className="grid min-h-screen place-items-center bg-[var(--surface-page)] text-sm text-[color:var(--text-muted)]">
-        正在检查登录状态...
+      <div className="grid min-h-screen place-items-center bg-[var(--surface-page)] px-5 text-center text-sm text-[color:var(--text-muted)]">
+        {authStatus === "checking" ? (
+          <p>正在检查登录状态...</p>
+        ) : (
+          <div className="space-y-3">
+            <p className="font-medium text-[color:var(--text-primary)]">暂时无法确认登录状态</p>
+            <p>请检查网络连接，然后重试。</p>
+            <button
+              type="button"
+              onClick={() => setAuthRetry((value) => value + 1)}
+              className="mx-auto flex items-center gap-2 rounded-lg border border-[color:var(--border-default)] px-4 py-2 text-[color:var(--text-primary)] focus-ring"
+            >
+              <RotateCcw size={14} /> 重试
+            </button>
+          </div>
+        )}
       </div>
     );
   }

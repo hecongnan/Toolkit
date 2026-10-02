@@ -35,12 +35,15 @@ export function Sidebar({ onNavigate, theme = "dark", onToggleTheme }: SidebarPr
   const pathname = usePathname();
   const router = useRouter();
   const [email, setEmail] = useState<string | null>(null);
+  const [signOutError, setSignOutError] = useState<string | null>(null);
 
   useEffect(() => {
     try {
       const supabase = createClient();
       supabase.auth.getUser().then(({ data }) => {
         setEmail(data.user?.email ?? null);
+      }).catch(() => {
+        setEmail(null);
       });
     } catch {
       setEmail(null);
@@ -48,13 +51,16 @@ export function Sidebar({ onNavigate, theme = "dark", onToggleTheme }: SidebarPr
   }, []);
 
   const signOut = async () => {
+    setSignOutError(null);
     try {
       const supabase = createClient();
-      await supabase.auth.signOut();
-    } finally {
+      const { error } = await supabase.auth.signOut();
+      if (error) throw error;
       onNavigate?.();
       router.replace("/login");
       router.refresh();
+    } catch {
+      setSignOutError("退出失败，请检查网络后重试。");
     }
   };
 
@@ -127,7 +133,7 @@ export function Sidebar({ onNavigate, theme = "dark", onToggleTheme }: SidebarPr
         <div className="min-w-0 rounded-xl border border-[color:var(--border-default)] bg-[var(--control-bg)] px-3 py-2">
           <p className="text-[11px] text-[color:var(--text-muted)]">当前账号</p>
           <p className="truncate text-xs font-medium text-[color:var(--text-secondary)]">
-            {email ?? "已登录"}
+            {email ?? "账号信息暂不可用"}
           </p>
         </div>
         <button
@@ -138,6 +144,7 @@ export function Sidebar({ onNavigate, theme = "dark", onToggleTheme }: SidebarPr
           <LogOut size={14} />
           退出登录
         </button>
+        {signOutError && <p role="alert" className="text-xs text-rose-300">{signOutError}</p>}
         <p className="text-[11px] text-[color:var(--text-faint)]">v0.2 · 云端同步</p>
       </div>
     </aside>

@@ -3,6 +3,7 @@
 import { CheckCircle2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { PageHeader } from "@/components/shell/PageHeader";
+import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Modal } from "@/components/ui/Modal";
@@ -48,6 +49,7 @@ export default function TodosPage() {
   const [date, setDate] = useState<string>(todayKey());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [editing, setEditing] = useState<Todo | null>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
@@ -55,6 +57,7 @@ export default function TodosPage() {
   const loadTodos = useCallback(async () => {
     setLoading(true);
     setError(null);
+    setLoadFailed(false);
     try {
       const supabase = createClient();
       const {
@@ -76,6 +79,7 @@ export default function TodosPage() {
       setTodos(((data ?? []) as TodoRow[]).map(toTodo));
     } catch (err: unknown) {
       setError(todoErrorMessage(err, "加载 Todo 失败"));
+      setLoadFailed(true);
     } finally {
       setLoading(false);
     }
@@ -269,6 +273,7 @@ export default function TodosPage() {
   };
 
   const remove = async (id: string) => {
+    if (!window.confirm("确定要删除这条任务吗？删除后无法恢复。")) return;
     setError(null);
     try {
       const supabase = createClient();
@@ -294,6 +299,7 @@ export default function TodosPage() {
       {error && (
         <div className="mb-4 rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">
           {error}
+          {loadFailed && <Button className="ml-3" size="sm" onClick={loadTodos}>重试加载</Button>}
         </div>
       )}
 
@@ -334,7 +340,7 @@ export default function TodosPage() {
           <div className="flex justify-center py-12">
             <Spinner size={20} />
           </div>
-        ) : total === 0 ? (
+        ) : loadFailed ? null : total === 0 ? (
           <EmptyState
             icon={<CheckCircle2 size={20} />}
             title="这一天没有任务"

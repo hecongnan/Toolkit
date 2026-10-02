@@ -37,10 +37,12 @@ export default function LearningPage() {
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
 
   const loadMaterials = useCallback(async () => {
     setLoading(true);
     setError(null);
+    setLoadFailed(false);
     try {
       const supabase = createClient();
       const {
@@ -59,6 +61,7 @@ export default function LearningPage() {
       setMaterials(((data ?? []) as MaterialRow[]).map(toMaterial));
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "加载学习资料失败");
+      setLoadFailed(true);
     } finally {
       setLoading(false);
     }
@@ -214,6 +217,7 @@ export default function LearningPage() {
       {error && (
         <div className="mb-4 rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">
           {error}
+          {loadFailed && <Button className="ml-3" size="sm" onClick={loadMaterials}>重试加载</Button>}
         </div>
       )}
 
@@ -264,7 +268,7 @@ export default function LearningPage() {
         <div className="flex justify-center py-16">
           <Spinner size={20} />
         </div>
-      ) : materials.length === 0 ? (
+      ) : loadFailed ? null : materials.length === 0 ? (
         <EmptyState
           icon={<BookOpen size={20} />}
           title="还没有学习资料"
