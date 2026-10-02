@@ -1,25 +1,12 @@
 "use client";
 
 import { CalendarDays, ChevronLeft, ChevronRight } from "lucide-react";
+import { isDateKey, shiftDate, todayKey } from "@/lib/todo-dates";
 
 interface Props {
   value: string;
   onChange: (next: string) => void;
-}
-
-function shiftDate(value: string, days: number): string {
-  const [y, m, d] = value.split("-").map(Number);
-  const date = new Date(y, m - 1, d);
-  date.setDate(date.getDate() + days);
-  return formatDate(date);
-}
-
-function formatDate(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
-
-function todayKey(): string {
-  return formatDate(new Date());
+  disabled?: boolean;
 }
 
 function relativeLabel(value: string): string {
@@ -35,11 +22,12 @@ function relativeLabel(value: string): string {
   });
 }
 
-export function DateNav({ value, onChange }: Props) {
+export function DateNav({ value, onChange, disabled = false }: Props) {
   return (
     <div className="surface flex flex-wrap items-center justify-between gap-3 p-3">
       <div className="flex items-center gap-1">
         <button
+          disabled={disabled}
           onClick={() => onChange(shiftDate(value, -1))}
           aria-label="上一天"
           className="rounded-lg p-2 text-zinc-300 hover:bg-white/5 focus-ring"
@@ -47,12 +35,14 @@ export function DateNav({ value, onChange }: Props) {
           <ChevronLeft size={18} />
         </button>
         <button
+          disabled={disabled}
           onClick={() => onChange(todayKey())}
           className="rounded-lg px-3 py-1.5 text-xs font-medium text-zinc-300 hover:bg-white/5 focus-ring"
         >
           今天
         </button>
         <button
+          disabled={disabled}
           onClick={() => onChange(shiftDate(value, 1))}
           aria-label="下一天"
           className="rounded-lg p-2 text-zinc-300 hover:bg-white/5 focus-ring"
@@ -71,8 +61,10 @@ export function DateNav({ value, onChange }: Props) {
         />
         <input
           type="date"
+          aria-label="选择任务日期"
+          disabled={disabled}
           value={value}
-          onChange={(e) => onChange(e.target.value)}
+          onChange={(e) => { if (isDateKey(e.target.value)) onChange(e.target.value); }}
           className="h-9 rounded-lg border border-white/10 bg-white/[0.03] pl-9 pr-3 text-xs text-zinc-200 focus-ring hover:border-white/20"
         />
       </label>

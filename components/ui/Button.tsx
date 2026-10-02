@@ -17,7 +17,7 @@ const variantClasses: Record<Variant, string> = {
   ghost:
     "text-[color:var(--text-secondary)] hover:bg-[var(--control-hover)] hover:text-[color:var(--text-primary)]",
   danger:
-    "border border-rose-500/30 bg-rose-500/10 text-rose-200 hover:bg-rose-500/20",
+    "border border-rose-500/30 bg-rose-500/10 text-rose-200 hover:bg-rose-500/20 [html[data-theme=light]_&]:text-rose-800",
 };
 
 const sizeClasses: Record<Size, string> = {

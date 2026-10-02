@@ -4,28 +4,25 @@ import { useEffect, useState } from "react";
 import { Save } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
-import type { Todo, TodoRepeat } from "@/lib/types";
+import type { Todo, TodoRepeat, TodoScope } from "@/lib/types";
+import { REPEAT_OPTIONS, repeatDescription } from "@/lib/todo-dates";
 
 interface Props {
   todo: Todo;
-  onSave: (todo: Todo) => Promise<boolean>;
+  onSave: (todo: Todo, scope: TodoScope) => Promise<boolean>;
   onCancel: () => void;
+  error?: string | null;
 }
 
-const REPEAT_OPTIONS: Array<{ value: TodoRepeat; label: string }> = [
-  { value: "none", label: "不重复" },
-  { value: "daily", label: "每天" },
-  { value: "weekdays", label: "每个工作日" },
-  { value: "weekly", label: "每周" },
-];
-
-export function TodoEditor({ todo, onSave, onCancel }: Props) {
+export function TodoEditor({ todo, onSave, onCancel, error }: Props) {
   const [text, setText] = useState(todo.text);
   const [dueDate, setDueDate] = useState(todo.dueDate);
   const [scheduledTime, setScheduledTime] = useState(todo.scheduledTime ?? "");
   const [priority, setPriority] = useState(todo.priority);
   const [repeat, setRepeat] = useState<TodoRepeat>(todo.repeat);
   const [submitting, setSubmitting] = useState(false);
+  const [scope, setScope] = useState<TodoScope>("single");
+  const recurring = Boolean(todo.seriesId) && todo.repeat !== "none";
 
   useEffect(() => {
     setText(todo.text);
@@ -33,6 +30,7 @@ export function TodoEditor({ todo, onSave, onCancel }: Props) {
     setScheduledTime(todo.scheduledTime ?? "");
     setPriority(todo.priority);
     setRepeat(todo.repeat);
+    setScope("single");
   }, [todo]);
 
   const submit = async (event: React.FormEvent) => {
@@ -47,20 +45,33 @@ export function TodoEditor({ todo, onSave, onCancel }: Props) {
       priority,
       repeat,
       updatedAt: Date.now(),
-    });
+    }, scope);
     setSubmitting(false);
     if (saved) onCancel();
   };
 
   return (
     <form onSubmit={submit} className="space-y-5">
+      <fieldset disabled={submitting} className="space-y-5">
+      {recurring && (
+        <Field label="修改范围">
+          <select aria-label="修改范围" value={scope} disabled={submitting} onChange={(event) => {
+            setScope(event.target.value as TodoScope);
+            setDueDate(todo.dueDate);
+            setRepeat(todo.repeat);
+          }} className="h-10 w-full rounded-lg border border-[color:var(--border-default)] bg-[var(--control-bg)] px-3 text-sm text-[color:var(--text-primary)] focus-ring">
+            <option value="single">仅这次</option>
+            <option value="future">这次及以后</option>
+          </select>
+        </Field>
+      )}
       <Field label="任务内容">
         <Input autoFocus value={text} onChange={(event) => setText(event.target.value)} required />
       </Field>
 
       <div className="grid gap-4 sm:grid-cols-2">
         <Field label="日期">
-          <Input type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} required />
+          <Input type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} required disabled={scope === "future"} />
         </Field>
         <Field label="计划时间">
           <Input
@@ -93,7 +104,9 @@ export function TodoEditor({ todo, onSave, onCancel }: Props) {
         </Field>
         <Field label="重复">
           <select
+            aria-label="重复"
             value={repeat}
+            disabled={recurring && scope === "single"}
             onChange={(event) => setRepeat(event.target.value as TodoRepeat)}
             className="h-10 w-full rounded-lg border border-white/10 bg-white/[0.03] px-3 text-sm text-zinc-200 focus-ring"
           >
@@ -106,6 +119,16 @@ export function TodoEditor({ todo, onSave, onCancel }: Props) {
         </Field>
       </div>
 
+      <p className="text-xs leading-relaxed text-[color:var(--text-muted)]">
+        {recurring && scope === "single"
+          ? "只改变这次任务。改期后，后续任务仍按原来的日期重复。"
+          : recurring
+            ? "按这次原定日期开始更新后续计划；未完成任务的单次修改也会被替换。已完成记录和已跳过的日期保留。系列编辑不改变日期。"
+            : repeatDescription(repeat, dueDate)}
+      </p>
+      {scope === "future" && <p className="text-xs text-[color:var(--text-muted)]">{repeatDescription(repeat, todo.occurrenceDate ?? dueDate)}</p>}
+      {error && <p role="alert" className="text-sm text-rose-400">{error}</p>}
+
       <div className="flex justify-end gap-2 border-t border-[color:var(--border-subtle)] pt-4">
         <Button type="button" variant="ghost" onClick={onCancel}>
           取消
@@ -115,6 +138,7 @@ export function TodoEditor({ todo, onSave, onCancel }: Props) {
           保存
         </Button>
       </div>
+      </fieldset>
     </form>
   );
 }

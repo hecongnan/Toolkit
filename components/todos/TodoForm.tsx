@@ -5,35 +5,31 @@ import { useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { uid } from "@/lib/storage";
+import { REPEAT_OPTIONS, repeatDescription } from "@/lib/todo-dates";
 import type { Todo, TodoRepeat } from "@/lib/types";
 
 interface Props {
   date: string;
   onAdd: (t: Todo) => Promise<boolean>;
+  disabled?: boolean;
 }
 
-const REPEAT_OPTIONS: Array<{ value: TodoRepeat; label: string }> = [
-  { value: "none", label: "不重复" },
-  { value: "daily", label: "每天" },
-  { value: "weekdays", label: "工作日" },
-  { value: "weekly", label: "每周" },
-];
-
-export function TodoForm({ date, onAdd }: Props) {
+export function TodoForm({ date, onAdd, disabled = false }: Props) {
   const [text, setText] = useState("");
   const [priority, setPriority] = useState<1 | 2 | 3>(2);
   const [scheduledTime, setScheduledTime] = useState("");
   const [repeat, setRepeat] = useState<TodoRepeat>("none");
   const [submitting, setSubmitting] = useState(false);
+  const [draftId, setDraftId] = useState(uid);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     const value = text.trim();
-    if (!value || submitting) return;
+    if (!value || submitting || disabled) return;
     const now = Date.now();
     setSubmitting(true);
     const added = await onAdd({
-      id: uid(),
+      id: draftId,
       text: value,
       done: false,
       priority,
@@ -50,6 +46,7 @@ export function TodoForm({ date, onAdd }: Props) {
       setPriority(2);
       setScheduledTime("");
       setRepeat("none");
+      setDraftId(uid());
     }
   };
 
@@ -60,10 +57,11 @@ export function TodoForm({ date, onAdd }: Props) {
           value={text}
           onChange={(e) => setText(e.target.value)}
           placeholder="输入一项任务，回车添加..."
-          className="flex-1"
-          disabled={submitting}
+          className="sm:flex-1"
+          disabled={submitting || disabled}
+          aria-label="任务内容"
         />
-        <Button type="submit" variant="primary" size="md" disabled={!text.trim() || submitting}>
+        <Button type="submit" variant="primary" size="md" disabled={!text.trim() || submitting || disabled}>
           <Plus size={16} />
           添加
         </Button>
@@ -74,6 +72,7 @@ export function TodoForm({ date, onAdd }: Props) {
           {[1, 2, 3].map((p) => (
             <button
               type="button"
+              disabled={disabled || submitting}
               key={p}
               onClick={() => setPriority(p as 1 | 2 | 3)}
               className={
@@ -83,7 +82,7 @@ export function TodoForm({ date, onAdd }: Props) {
                   : "text-zinc-400 hover:text-zinc-100")
               }
             >
-              P{p}
+              {["高", "中", "低"][p - 1]} · P{p}
             </button>
           ))}
         </div>
@@ -92,6 +91,7 @@ export function TodoForm({ date, onAdd }: Props) {
           <Clock3 size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-500" />
           <input
             type="time"
+            disabled={disabled || submitting}
             value={scheduledTime}
             onChange={(event) => setScheduledTime(event.target.value)}
             aria-label="计划时间"
@@ -103,6 +103,7 @@ export function TodoForm({ date, onAdd }: Props) {
           <Repeat2 size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-500" />
           <select
             value={repeat}
+            disabled={disabled || submitting}
             onChange={(event) => setRepeat(event.target.value as TodoRepeat)}
             aria-label="重复规则"
             className="h-9 rounded-lg border border-white/10 bg-white/[0.03] pl-8 pr-7 text-xs text-zinc-300 focus-ring"
@@ -115,6 +116,7 @@ export function TodoForm({ date, onAdd }: Props) {
           </select>
         </label>
       </div>
+      <p className="text-xs leading-relaxed text-[color:var(--text-muted)]">{repeatDescription(repeat, date)}</p>
     </form>
   );
 }

@@ -1,3 +1,5 @@
+-- Fresh installs: run this file, then migrations/20261002_todo_recurrence.sql.
+-- Existing Todo 3.0 databases: use migrations only; do not rerun this legacy baseline.
 create table if not exists public.materials (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,

@@ -38,6 +38,8 @@ cp .env.local.example .env.local
 
 # 3. 在 Supabase SQL Editor 执行建表脚本
 # lib/supabase/schema.sql
+# 然后执行重复任务迁移
+# lib/supabase/migrations/20261002_todo_recurrence.sql
 
 # 4. 启动开发服务器
 npm run dev
@@ -79,7 +81,7 @@ npm run start
 ## Supabase 配置
 
 1. 创建 Supabase 项目。
-2. 打开 SQL Editor，执行 `lib/supabase/schema.sql`。
+2. 打开 SQL Editor，先执行 `lib/supabase/schema.sql`，再执行 `lib/supabase/migrations/20261002_todo_recurrence.sql`。
 3. Authentication → Providers 中启用 Email。
 4. 如果开启邮箱确认，在 Authentication → URL Configuration 配置：
    - Site URL：本地 `http://localhost:3000`，生产填 EdgeOne 正式域名
@@ -87,6 +89,7 @@ npm run start
 5. 把项目 URL 和 anon key 填入 `.env.local` / EdgeOne Environment Variables。
 
 已有数据库升级到 Todo 2.0 时，在 SQL Editor 执行 `lib/supabase/migrations/20260913_todo_v2.sql`。迁移是幂等的，不会删除现有数据。
+Todo 3.0 还需执行 `lib/supabase/migrations/20261002_todo_recurrence.sql`，再部署新版代码。已有 Todo 2.0 数据库只需执行这份新迁移；不要重跑旧建表脚本来升级。迁移会保留任务和完成记录，重复执行不会重新启用已停止的计划。详细步骤见 [重复任务升级](docs/todo-recurrence.md)。
 
 ---
 
@@ -125,11 +128,15 @@ EdgeOne 会自动使用 OpenNext 适配器保留 SSR 和 API Route。当前项�
 ### Todo（`/todos`）
 - 按日期管理（昨天 / 今天 / 明天 + 任意日期）
 - 优先级 P1–P3
-- 支持编辑、计划时间和重复规则（每天 / 工作日 / 每周）
+- 支持编辑、计划时间和重复规则（每天 / 周一至周五 / 每周）
 - 桌面端拖拽排序，移动端使用上下移动按钮
-- 完成重复任务时自动创建下一期，并避免重复生成
-- 当日完成进度条
-- 完成项自动折叠到列表底部
+- 重复任务按日历日期出现，与上次是否完成无关；周一至周五不包含法定节假日调整
+- 编辑可选择「仅这次」或「这次及以后」；单次改期不影响后续计划
+- 支持跳过并恢复本次任务，或停止这次及以后的重复；完成历史保留
+- 今天的逾期区补齐最近 30 天重复任务，单次逾期任务不限制日期，可一键移到今天
+- 当日完成进度不计入跳过项；已完成和已跳过分组折叠展示
+
+重复任务的日期、迁移重跑、改期、停止范围及 RLS 隔离回归检查：`npm run test:todos`。测试使用内存 PostgreSQL，不连接正式 Supabase。
 
 ### GitHub 分析（`/github`）
 

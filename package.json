@@ -7,7 +7,8 @@
     "dev:mobile": "next dev -H 0.0.0.0",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test:todos": "node tests/todos.test.cjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.95.0",
@@ -22,6 +23,7 @@
     "remark-gfm": "^4.0.0"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8",
     "@types/node": "^22.9.0",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",

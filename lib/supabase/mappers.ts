@@ -30,6 +30,8 @@ export interface TodoRow {
   scheduled_time: string | null;
   repeat_rule: TodoRepeat;
   series_id: string | null;
+  occurrence_date?: string | null;
+  skipped?: boolean;
   position: number;
   created_at: string;
   updated_at: string;
@@ -79,6 +81,8 @@ export function toTodo(row: TodoRow): Todo {
     scheduledTime: row.scheduled_time?.slice(0, 5) || undefined,
     repeat: row.repeat_rule ?? "none",
     seriesId: row.series_id ?? undefined,
+    occurrenceDate: row.occurrence_date ?? undefined,
+    skipped: row.skipped ?? false,
     position: row.position ?? 0,
     createdAt: new Date(row.created_at).getTime(),
     updatedAt: new Date(row.updated_at ?? row.created_at).getTime(),

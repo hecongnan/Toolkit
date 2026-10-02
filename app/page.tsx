@@ -19,6 +19,7 @@ import { Spinner } from "@/components/ui/Spinner";
 import { Tag } from "@/components/ui/Tag";
 import { readStorage, STORAGE_KEYS } from "@/lib/storage";
 import { createClient } from "@/lib/supabase/client";
+import { todoErrorMessage } from "@/lib/todo-dates";
 import {
   fromLocalAnalysisReport,
   fromLocalMaterial,
@@ -88,11 +89,15 @@ export default function DashboardPage() {
       if (!user) return;
       setUserId(user.id);
 
+      const { error: recurrenceError } = await supabase.rpc("todo_ensure_occurrences", { p_date: today, p_today: today });
+      if (recurrenceError) throw recurrenceError;
+
       const [todosRes, materialsRes, reportsRes] = await Promise.all([
         supabase
           .from("todos")
           .select("*")
           .eq("due_date", today)
+          .eq("skipped", false)
           .order("position", { ascending: true })
           .order("created_at", { ascending: true }),
         supabase
@@ -115,7 +120,7 @@ export default function DashboardPage() {
       setReports(((reportsRes.data ?? []) as AnalysisReportRow[]).map(toAnalysisReport));
       setLegacyCounts(getLegacyCounts());
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "加载数据失败");
+      setError(todoErrorMessage(err, "加载数据失败"));
       setLoadFailed(true);
     } finally {
       setLoading(false);
