@@ -15,6 +15,7 @@ import {
 import { Tag } from "@/components/ui/Tag";
 import { cn } from "@/lib/cn";
 import type { Todo } from "@/lib/types";
+import { TodoMenu, type TodoMenuAction } from "./TodoMenu";
 
 interface Props {
   todo: Todo;
@@ -63,6 +64,17 @@ export function TodoItem({
   onMoveToToday,
 }: Props) {
   const reorderable = !todo.done && !todo.skipped && !showDate;
+  const actions: TodoMenuAction[] = [
+    { label: "编辑", icon: <Pencil size={16} />, onSelect: () => onEdit(todo) },
+    ...(onMoveToToday ? [{ label: "移到今天", icon: <CalendarArrowUp size={16} />, onSelect: () => onMoveToToday(todo.id) }] : []),
+    ...(onSkip && !todo.done && !todo.skipped && todo.seriesId && todo.repeat !== "none"
+      ? [{ label: "跳过这次", icon: <SkipForward size={16} />, onSelect: () => onSkip(todo.id) }] : []),
+    ...(reorderable ? [
+      { label: "上移", icon: <ChevronUp size={16} />, disabled: !canMoveUp, onSelect: () => onMove(todo.id, -1) },
+      { label: "下移", icon: <ChevronDown size={16} />, disabled: !canMoveDown, onSelect: () => onMove(todo.id, 1) },
+    ] : []),
+    { label: "删除", icon: <Trash2 size={16} />, danger: true, onSelect: () => onDelete(todo.id) },
+  ];
   return (
     <div
       data-todo-id={todo.id}
@@ -73,7 +85,7 @@ export function TodoItem({
       onDrop={() => onDrop(todo.id)}
       onDragEnd={onDragEnd}
       className={cn(
-        "group flex flex-wrap items-center gap-2 px-3 py-3 sm:gap-3 sm:px-4",
+        "group flex items-center gap-1 px-2 py-3 sm:flex-wrap sm:gap-3 sm:px-4",
         "hover:bg-white/[0.03]",
         reorderable && !disabled && "sm:cursor-grab sm:active:cursor-grabbing",
       )}
@@ -82,6 +94,7 @@ export function TodoItem({
         <GripVertical size={15} className="hidden shrink-0 text-zinc-600 sm:block" aria-hidden />
       )}
       <button
+        type="button"
         onClick={() => onToggle(todo.id)}
         disabled={toggleDisabled}
         aria-label={todo.skipped ? "恢复这次任务" : todo.done ? "标记未完成" : "标记完成"}
@@ -101,7 +114,7 @@ export function TodoItem({
       <div className="min-w-0 flex-1">
         <p
           className={cn(
-            "break-words text-sm leading-snug",
+            "break-words text-sm leading-relaxed",
             todo.done
               ? "text-zinc-500 line-through decoration-zinc-600"
               : "text-[color:var(--text-primary)]",
@@ -127,13 +140,17 @@ export function TodoItem({
             )}
           </div>
         )}
+        <Tag tone={PRIORITY_TONE[todo.priority]} className="mt-1.5 sm:hidden">
+          P{todo.priority} · {PRIORITY_LABEL[todo.priority]}
+        </Tag>
       </div>
 
-      <Tag tone={PRIORITY_TONE[todo.priority]}>
+      <Tag tone={PRIORITY_TONE[todo.priority]} className="hidden sm:inline-flex">
         P{todo.priority} · {PRIORITY_LABEL[todo.priority]}
       </Tag>
 
-      <div className="todo-actions flex w-full shrink-0 flex-wrap items-center justify-end sm:w-auto">
+      <TodoMenu title={todo.text} disabled={disabled} actions={actions} />
+      <div className="todo-actions hidden shrink-0 flex-wrap items-center justify-end sm:flex">
         {reorderable && (
           <>
             <IconButton

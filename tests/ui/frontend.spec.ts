@@ -179,7 +179,7 @@ test.describe("touch task completion", () => {
       await expect(todoRow(page, second.text).getByRole("button", { name: "标记完成", exact: true })).toBeEnabled();
       await expect(page.getByLabel("选择任务日期")).toBeDisabled();
       await expect(page.getByLabel("任务内容", { exact: true })).toBeDisabled();
-      await expect(todoRow(page, "下一件待办").getByRole("button", { name: "编辑", exact: true })).toBeDisabled();
+      await expect(todoRow(page, "下一件待办").getByRole("button", { name: "更多操作：下一件待办", exact: true })).toBeDisabled();
       await stable();
 
       await todoRow(page, second.text).getByRole("button", { name: "标记完成", exact: true }).tap();
@@ -255,7 +255,7 @@ test.describe("touch task completion", () => {
         await expect(page.locator("#main-content").getByRole("alert")).toBeVisible();
         await expect(todoRow(page, "每天读书").getByRole("button", { name: "标记完成", exact: true })).toBeEnabled();
         await expect(page.getByText("已完成 · 1", { exact: true })).toBeVisible();
-        await expect(page.getByRole("status").filter({ hasText: "本次任务已完成" })).toHaveCount(0);
+        await expect(page.getByRole("button", { name: "撤销完成：每天读书", exact: true })).toHaveCount(0);
         expect(state.todos[0].done).toBe(false);
         expect(state.errors).toEqual([]);
       } finally { pending.release(); }
@@ -275,7 +275,8 @@ test.describe("touch task completion", () => {
       const stable = await watchTodoList(page, survivor);
       const initialReads = state.todoReads;
       state.holdTodoReads = reads.wait;
-      await todoRow(page, removed.text).getByRole("button", { name: "删除", exact: true }).tap();
+      await todoRow(page, removed.text).getByRole("button", { name: `更多操作：${removed.text}`, exact: true }).tap();
+      await page.getByRole("menuitem", { name: "删除", exact: true }).tap();
       const dialog = page.getByRole("dialog", { name: "删除任务" });
       await dialog.getByRole("button", { name: "确认删除", exact: true }).tap();
       await expect.poll(() => state.todoReads).toBeGreaterThan(initialReads);
@@ -347,6 +348,176 @@ test.describe("touch task completion", () => {
       await expect(todoRow(page, "每天读书").getByRole("button", { name: "标记未完成", exact: true })).toHaveAttribute("aria-pressed", "true");
       expect(state.errors).toEqual([]);
     } finally { reads.release(); }
+  });
+});
+
+test.describe("task undo and mobile menu", () => {
+  test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+
+  test("undo restores the exact completed task without a reload, and failed undo can retry", async ({ page, context }, info) => {
+    const state = await isolate(page, context);
+    const target = state.todos[0];
+    const survivor = todoFixture("77777777-7777-4777-8777-777777777777", "继续处理这件事");
+    state.todos.push(survivor);
+    await page.goto("/todos");
+    await expect(todoRow(page, survivor.text)).toBeVisible();
+    const stable = await watchTodoList(page, todoRow(page, survivor.text));
+    const reads = state.todoReads;
+    await todoRow(page, target.text).getByRole("button", { name: "标记完成", exact: true }).tap();
+    const undo = page.getByRole("button", { name: `撤销完成：${target.text}`, exact: true });
+    await expect(undo).toBeVisible();
+    await page.screenshot({ path: info.outputPath("mobile-undo.png"), fullPage: true });
+    state.todoPatchPlans.set(target.id, [{ outcome: "error" }]);
+    await undo.tap();
+    await expect(page.getByRole("status").filter({ hasText: "撤销未保存" })).toBeVisible();
+    expect(target.done).toBe(true);
+    await undo.tap();
+    await expect(todoRow(page, target.text).getByRole("button", { name: "标记完成", exact: true })).toBeEnabled();
+    expect(target.done).toBe(false);
+    expect(state.todoWrites.map((write) => write.patch.done)).toEqual([true, false, false]);
+    expect(state.todoReads).toBe(reads);
+    await expect(page.getByRole("button", { name: /撤销完成：/ })).toHaveCount(0);
+    await stable();
+    expect(state.errors).toEqual([]);
+  });
+
+  test("out-of-order saves cannot change the latest undo target", async ({ page, context }) => {
+    const state = await isolate(page, context);
+    const first = state.todos[0];
+    const second = todoFixture("77777777-7777-4777-8777-777777777777", "最后完成的任务");
+    state.todos.push(second);
+    const slow = gate();
+    state.todoPatchPlans.set(first.id, [{ wait: slow.wait }]);
+    try {
+      await page.goto("/todos");
+      await todoRow(page, first.text).getByRole("button", { name: "标记完成", exact: true }).tap();
+      await todoRow(page, second.text).getByRole("button", { name: "标记完成", exact: true }).tap();
+      const undo = page.getByRole("button", { name: `撤销完成：${second.text}`, exact: true });
+      await expect(undo).toBeVisible();
+      slow.release();
+      await expect(page.getByLabel("选择任务日期")).toBeEnabled();
+      await expect(undo).toBeVisible();
+      await undo.tap();
+      await expect(todoRow(page, second.text).getByRole("button", { name: "标记完成", exact: true })).toBeEnabled();
+      expect(first.done).toBe(true);
+      expect(second.done).toBe(false);
+      expect(state.todoWrites.at(-1)?.id).toBe(second.id);
+      expect(state.errors).toEqual([]);
+    } finally { slow.release(); }
+  });
+
+  test("undo of an overdue completion restores the overdue count", async ({ page, context }) => {
+    const state = await isolate(page, context);
+    const yesterday = new Date(`${today}T12:00:00+08:00`);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const dueDate = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai" }).format(yesterday);
+    const overdue = todoFixture("77777777-7777-4777-8777-777777777777", "昨天的单次任务", { due_date: dueDate });
+    state.todos.push(overdue);
+    await page.goto("/todos");
+    await todoRow(page, overdue.text).getByRole("button", { name: "标记完成", exact: true }).tap();
+    const undo = page.getByRole("button", { name: `撤销完成：${overdue.text}`, exact: true });
+    await expect(undo).toBeVisible();
+    await expect(page.getByText("逾期未完成 · 1", { exact: true })).toHaveCount(0);
+    await undo.tap();
+    await expect(page.getByText("逾期未完成 · 1", { exact: true })).toBeVisible();
+    await expect(todoRow(page, overdue.text).getByRole("button", { name: "标记完成", exact: true })).toBeEnabled();
+    expect(overdue.done).toBe(false);
+    expect(state.errors).toEqual([]);
+  });
+
+  test("undo stays available while keyboard focused and expires after leaving", async ({ page, context }) => {
+    await isolate(page, context);
+    await page.clock.install();
+    await page.goto("/todos");
+    await todoRow(page, "每天读书").getByRole("button", { name: "标记完成", exact: true }).tap();
+    const undo = page.getByRole("button", { name: "撤销完成：每天读书", exact: true });
+    await expect(undo).toBeVisible();
+    await undo.focus();
+    await page.clock.fastForward(15_000);
+    await expect(undo).toBeFocused();
+    await page.getByLabel("任务内容", { exact: true }).focus();
+    await page.clock.fastForward(8_100);
+    await expect(undo).toHaveCount(0);
+    await page.getByText("已完成 · 2", { exact: true }).tap();
+    await expect(todoRow(page, "每天读书").getByRole("button", { name: "标记未完成", exact: true })).toBeEnabled();
+  });
+
+  test("mobile menu supports arrows, Escape, outside dismissal, and edit focus return", async ({ page, context }, info) => {
+    const state = await isolate(page, context);
+    await page.goto("/todos");
+    const trigger = page.getByRole("button", { name: "更多操作：每天读书", exact: true });
+    await trigger.focus();
+    await page.keyboard.press("ArrowDown");
+    const menu = page.getByRole("menu", { name: "任务操作：每天读书", exact: true });
+    await expect(menu.getByRole("menuitem", { name: "编辑", exact: true })).toBeFocused();
+    await page.keyboard.press("ArrowDown");
+    await expect(menu.getByRole("menuitem", { name: "跳过这次", exact: true })).toBeFocused();
+    await expect(menu.getByRole("menuitem", { name: "上移", exact: true })).toBeDisabled();
+    await page.keyboard.press("End");
+    await expect(menu.getByRole("menuitem", { name: "删除", exact: true })).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(menu).toHaveCount(0);
+    await expect(trigger).toBeFocused();
+    await trigger.tap();
+    await expect(menu).toBeVisible();
+    await page.screenshot({ path: info.outputPath("mobile-more-menu.png") });
+    await expect(menu).toBeVisible();
+    await page.getByRole("heading", { name: "每日待办", exact: true }).tap();
+    await expect(menu).toHaveCount(0);
+    await trigger.tap();
+    await menu.getByRole("menuitem", { name: "编辑", exact: true }).tap();
+    const dialog = page.getByRole("dialog", { name: "编辑任务" });
+    await expect(dialog.getByLabel("任务内容")).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(trigger).toBeFocused();
+    expect(state.errors).toEqual([]);
+  });
+
+  test("menu actions skip just this occurrence and reorder without offering invalid actions", async ({ page, context }) => {
+    const state = await isolate(page, context);
+    const second = todoFixture("77777777-7777-4777-8777-777777777777", "第二件事");
+    state.todos.push(second);
+    await page.goto("/todos");
+    await page.getByRole("button", { name: "更多操作：每天读书", exact: true }).tap();
+    await page.getByRole("menuitem", { name: "下移", exact: true }).tap();
+    await expect(page.getByRole("status").filter({ hasText: "任务顺序已保存" })).toBeVisible();
+    expect(state.todos[0].position).toBeGreaterThan(second.position);
+    await page.getByRole("button", { name: "更多操作：第二件事", exact: true }).tap();
+    await expect(page.getByRole("menuitem", { name: "跳过这次", exact: true })).toHaveCount(0);
+    await page.keyboard.press("Escape");
+    await page.getByRole("button", { name: "更多操作：每天读书", exact: true }).tap();
+    await page.getByRole("menuitem", { name: "跳过这次", exact: true }).tap();
+    await expect(page.getByText("已跳过 · 1（可恢复）", { exact: true })).toBeVisible();
+    expect(state.todos[0].skipped).toBe(true);
+    expect(state.todos[0].repeat_rule).toBe("daily");
+    expect(state.errors).toEqual([]);
+  });
+
+  test("long titles, small screens and menus near the viewport edge stay usable", async ({ page, context }, info) => {
+    const state = await isolate(page, context);
+    state.todos[0].text = "很长的任务内容与链接https://example.test/" + "long".repeat(18);
+    for (let index = 0; index < 6; index++) state.todos.push(todoFixture(`extra-${index}`, `更多待办 ${index}`, { position: 5120 + index * 1024 }));
+    await page.setViewportSize({ width: 320, height: 720 });
+    await page.emulateMedia({ reducedMotion: "reduce", colorScheme: "dark" });
+    await page.goto("/todos");
+    await expect(todoRow(page, "更多待办 5")).toBeAttached();
+    await page.getByRole("button", { name: "更多操作：更多待办 5", exact: true }).tap();
+    const menu = page.getByRole("menu");
+    await expect(menu).toBeVisible();
+    const box = await menu.boundingBox();
+    expect(box!.x).toBeGreaterThanOrEqual(12);
+    expect(box!.y).toBeGreaterThanOrEqual(12);
+    expect(box!.x + box!.width).toBeLessThanOrEqual(308);
+    expect(box!.y + box!.height).toBeLessThanOrEqual(708);
+    for (const item of await menu.getByRole("menuitem").all()) expect((await item.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    await noOverflow(page);
+    await page.screenshot({ path: info.outputPath("small-dark-more-menu.png") });
+    await page.keyboard.press("Escape");
+    await page.evaluate(() => { document.documentElement.style.fontSize = "200%"; });
+    await page.getByRole("button", { name: "更多操作：更多待办 5", exact: true }).tap();
+    await expect(page.getByRole("menuitem", { name: "删除", exact: true })).toBeVisible();
+    await noOverflow(page);
+    expect(state.errors).toEqual([]);
   });
 });
 
@@ -628,7 +799,8 @@ test("reduced motion removes panel movement and touch controls have 44px targets
     expect(box?.width).toBeGreaterThanOrEqual(44);
     expect(box?.height).toBeGreaterThanOrEqual(44);
   }
-  await row.getByRole("button", { name: "编辑", exact: true }).click();
+  await row.getByRole("button", { name: "更多操作：每天读书", exact: true }).click();
+  await page.getByRole("menuitem", { name: "编辑", exact: true }).click();
   await expect(page.getByRole("dialog").locator(".modal-panel")).toHaveCSS("transform", "none");
   await page.screenshot({ path: info.outputPath("mobile-edit.png") });
   await noOverflow(page);

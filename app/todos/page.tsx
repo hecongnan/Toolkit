@@ -12,6 +12,7 @@ import { DateNav } from "@/components/todos/DateNav";
 import { TodoEditor } from "@/components/todos/TodoEditor";
 import { TodoForm } from "@/components/todos/TodoForm";
 import { TodoItem } from "@/components/todos/TodoItem";
+import { TodoNotice } from "@/components/todos/TodoNotice";
 import { createClient } from "@/lib/supabase/client";
 import { toTodo, type TodoRow } from "@/lib/supabase/mappers";
 import { shiftDate, todayKey, todoErrorMessage } from "@/lib/todo-dates";
@@ -29,18 +30,21 @@ export default function TodosPage() {
   const [error, setError] = useState<string | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [undoTodo, setUndoTodo] = useState<{ id: string; text: string } | null>(null);
   const [editing, setEditing] = useState<Todo | null>(null);
   const [deleting, setDeleting] = useState<Todo | null>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const requestRef = useRef(0);
   const busyRef = useRef(false);
   const pendingRef = useRef(new Set<string>());
+  const latestActionRef = useRef(0);
 
-  useEffect(() => {
-    if (!notice) return;
-    const timer = window.setTimeout(() => setNotice(null), 5_000);
-    return () => window.clearTimeout(timer);
-  }, [notice]);
+  const dismissNotice = useCallback(() => {
+    setNotice(null);
+    setUndoTodo(null);
+  }, []);
+
+  useEffect(() => { dismissNotice(); }, [date, dismissNotice]);
 
   const loadTodos = useCallback(async (clearError = true, background = false): Promise<boolean> => {
     const request = ++requestRef.current;
@@ -113,10 +117,11 @@ export default function TodosPage() {
 
   const runMutation = async (action: () => Promise<void>, success: string): Promise<boolean> => {
     if (busyRef.current || pendingRef.current.size) return false;
+    latestActionRef.current += 1;
     busyRef.current = true;
     setBusy(true);
     setError(null);
-    setNotice(null);
+    dismissNotice();
     try {
       await action();
       await loadTodos(false, true);
@@ -142,16 +147,18 @@ export default function TodosPage() {
     if (createError) throw createError;
   }, todo.repeat === "weekdays" ? "任务已添加；周一至周五出现，周末自动顺延。" : "任务已添加。");
 
-  const toggle = async (id: string) => {
+  const toggle = async (id: string, undo = false) => {
     const todo = todos.find((item) => item.id === id);
     if (!todo || loading || busyRef.current || pendingRef.current.has(id)) return;
+    if (undo && !todo.done) { dismissNotice(); return; }
+    const action = ++latestActionRef.current;
 
     // An older background read must not undo a newer local action.
     requestRef.current += 1;
     pendingRef.current.add(id);
     setPendingIds(new Set(pendingRef.current));
     setError(null);
-    setNotice(null);
+    dismissNotice();
     const optimistic = { ...todo, done: todo.skipped ? false : !todo.done, skipped: false, updatedAt: Date.now() };
     const isOverdue = (item: Todo) => Number(item.dueDate < today && !item.done && !item.skipped);
     const countChange = isOverdue(optimistic) - isOverdue(todo);
@@ -166,12 +173,20 @@ export default function TodosPage() {
       const saved = toTodo(data as TodoRow);
       setTodos((items) => items.map((item) => item.id === id ? saved : item));
       setOverdueCount((count) => count + isOverdue(saved) - isOverdue(optimistic));
-      setNotice(todo.skipped ? "本次任务已恢复。" : todo.done ? "已恢复为待完成。" : "本次任务已完成。");
+      // Notification belongs to the latest user action, not the last network response.
+      if (action === latestActionRef.current) {
+        setNotice(todo.skipped ? "本次任务已恢复。" : todo.done ? "已恢复为待完成。" : `已完成“${todo.text}”。`);
+        setUndoTodo(!todo.done && !todo.skipped && saved.done ? { id, text: todo.text } : null);
+      }
     } catch (err: unknown) {
       // Roll back only this row; other tasks may already have been completed.
       setTodos((items) => items.map((item) => item.id === id ? todo : item));
       setOverdueCount((count) => count - countChange);
       setError(`“${todo.text}”未保存，已恢复原状态。${todoErrorMessage(err, "请重试。")}`);
+      if (undo && action === latestActionRef.current) {
+        setNotice("撤销未保存，任务仍为已完成，可重试。");
+        setUndoTodo({ id, text: todo.text });
+      }
     } finally {
       pendingRef.current.delete(id);
       setPendingIds(new Set(pendingRef.current));
@@ -232,7 +247,7 @@ export default function TodosPage() {
   const renderTodo = (todo: Todo, index: number, overdueItem = false) => (
     <TodoItem key={todo.id} todo={todo} disabled={disabled}
       toggleDisabled={busy || loading || pendingIds.has(todo.id)} pending={pendingIds.has(todo.id)} showDate={overdueItem}
-      onToggle={toggle} onEdit={(item) => { setError(null); setEditing(item); }}
+      onToggle={(id) => void toggle(id)} onEdit={(item) => { setError(null); setEditing(item); }}
       onDelete={(id) => { setError(null); setDeleting(todos.find((item) => item.id === id) ?? null); }}
       onSkip={skip} onMoveToToday={overdueItem ? moveToToday : undefined}
       onMove={moveTodo} onDragStart={setDraggingId} onDrop={dropTodo} onDragEnd={() => setDraggingId(null)}
@@ -246,9 +261,9 @@ export default function TodosPage() {
       {error && <div role="alert" className="mb-4 space-y-2 rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-400">
         <p>{error}</p>{loadFailed && <Button size="sm" onClick={() => void loadTodos()}>重试加载</Button>}
       </div>}
-      {notice && <div role="status" className="surface pointer-events-none fixed inset-x-4 bottom-[max(1rem,env(safe-area-inset-bottom))] z-40 flex items-center justify-between gap-3 rounded-2xl px-4 py-2 text-sm shadow-lg sm:left-auto sm:max-w-md">
-        <span>{notice}</span><button type="button" onClick={() => setNotice(null)} className="button pointer-events-auto min-h-11 shrink-0 rounded-xl px-3 text-xs focus-ring">关闭</button>
-      </div>}
+      {notice && <TodoNotice message={notice} onDismiss={dismissNotice}
+        undoLabel={undoTodo ? `撤销完成：${undoTodo.text}` : undefined}
+        onUndo={undoTodo ? () => void toggle(undoTodo.id, true) : undefined} />}
       <div className="space-y-4 pb-16">
         <DateNav value={date} onChange={setDate} disabled={busy || pendingIds.size > 0} />
         <Card className="!p-4">
