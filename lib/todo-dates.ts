@@ -49,6 +49,9 @@ export function repeatDescription(repeat: TodoRepeat, start: string): string {
 
 export function todoErrorMessage(error: unknown, fallback: string): string {
   const details = error as { message?: string; code?: string } | null;
+  if (details?.code === "PGRST116") {
+    return "这项任务可能已被删除，或当前账号无法修改。请刷新后重试。";
+  }
   if (details?.code === "PGRST202" || details?.code === "42703" ||
       /todo_ensure_occurrences|todo_create|todo_edit|todo_remove|occurrence_date|skipped/.test(details?.message ?? "")) {
     return "任务功能需要更新后才能使用，请联系站点管理员。";

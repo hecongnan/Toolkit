@@ -28,6 +28,8 @@ interface Props {
   canMoveUp: boolean;
   canMoveDown: boolean;
   disabled?: boolean;
+  toggleDisabled?: boolean;
+  pending?: boolean;
   showDate?: boolean;
   onSkip?: (id: string) => void;
   onMoveToToday?: (id: string) => void;
@@ -54,6 +56,8 @@ export function TodoItem({
   canMoveUp,
   canMoveDown,
   disabled = false,
+  toggleDisabled = disabled,
+  pending = false,
   showDate = false,
   onSkip,
   onMoveToToday,
@@ -61,6 +65,8 @@ export function TodoItem({
   const reorderable = !todo.done && !todo.skipped && !showDate;
   return (
     <div
+      data-todo-id={todo.id}
+      aria-busy={pending}
       draggable={reorderable && !disabled}
       onDragStart={() => onDragStart(todo.id)}
       onDragOver={(event) => event.preventDefault()}
@@ -77,7 +83,7 @@ export function TodoItem({
       )}
       <button
         onClick={() => onToggle(todo.id)}
-        disabled={disabled}
+        disabled={toggleDisabled}
         aria-label={todo.skipped ? "恢复这次任务" : todo.done ? "标记未完成" : "标记完成"}
         aria-pressed={todo.done}
         className="button grid h-11 w-11 shrink-0 place-items-center rounded-xl focus-ring disabled:opacity-50"

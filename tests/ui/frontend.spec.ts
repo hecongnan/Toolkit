@@ -1,10 +1,27 @@
-import { test, expect, type Page, type BrowserContext } from "@playwright/test";
+import { test, expect, type Page, type BrowserContext, type Locator } from "@playwright/test";
 
 const host = "frontend-preview.supabase.co";
 const userId = "11111111-1111-4111-8111-111111111111";
 const timestamp = new Date().toISOString();
 const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai" }).format(new Date());
 const user = { id: userId, email: "preview@example.test", aud: "authenticated", role: "authenticated", app_metadata: { provider: "email" }, user_metadata: {}, created_at: timestamp };
+
+type TodoFixture = {
+  id: string; user_id: string; text: string; priority: number; done: boolean; skipped: boolean;
+  repeat_rule: string; series_id: string | null; due_date: string; occurrence_date: string | null;
+  scheduled_time: string | null; position: number; created_at: string; updated_at: string;
+};
+type TodoPatchPlan = { wait?: Promise<void>; outcome?: "error" | "empty" | "missing" };
+
+function todoFixture(id: string, text: string, overrides: Partial<TodoFixture> = {}): TodoFixture {
+  return { id, user_id: userId, text, priority: 2, done: false, skipped: false, repeat_rule: "none", series_id: null, due_date: today, occurrence_date: null, scheduled_time: null, position: 4096, created_at: timestamp, updated_at: timestamp, ...overrides };
+}
+
+function gate() {
+  let release!: () => void;
+  const wait = new Promise<void>((resolve) => { release = resolve; });
+  return { wait, release };
+}
 
 async function isolate(page: Page, context: BrowserContext, authenticated = true) {
   const errors: string[] = [];
@@ -15,7 +32,7 @@ async function isolate(page: Page, context: BrowserContext, authenticated = true
     const session = { access_token: `${encode({ alg: "HS256", typ: "JWT" })}.${encode({ sub: userId, exp, aud: "authenticated", role: "authenticated" })}.preview`, refresh_token: "preview-only", token_type: "bearer", expires_in: 3600, expires_at: exp, user };
     await context.addCookies([{ name: "sb-frontend-preview-auth-token", value: "base64-" + encode(session), domain: "127.0.0.1", path: "/" }]);
   }
-  const todos = [
+  const todos: TodoFixture[] = [
     { id: "22222222-2222-4222-8222-222222222222", user_id: userId, text: "每天读书", priority: 2, done: false, skipped: false, repeat_rule: "daily", series_id: "22222222-2222-4222-8222-222222222222", due_date: today, occurrence_date: today, scheduled_time: "08:30:00", position: 1024, created_at: timestamp, updated_at: timestamp },
     { id: "33333333-3333-4333-8333-333333333333", user_id: userId, text: "整理学习资料", priority: 1, done: true, skipped: false, repeat_rule: "none", series_id: null, due_date: today, occurrence_date: null, scheduled_time: null, position: 2048, created_at: timestamp, updated_at: timestamp },
   ];
@@ -24,7 +41,12 @@ async function isolate(page: Page, context: BrowserContext, authenticated = true
     { id: "55555555-5555-4555-8555-555555555555", user_id: userId, title: "无障碍界面实践", category: "设计", tags: ["A11y"], status: "todo", priority: 1, notes: "为键盘、触摸和不同的视觉需求留出空间。", url: null, created_at: timestamp, updated_at: timestamp },
   ];
   const reports = [{ id: "66666666-6666-4666-8666-666666666666", user_id: userId, repo_url: "https://github.com/example/toolkit", owner: "example", repo: "toolkit", branch: "main", summary: "一个清晰、专注的个人工作区。", markdown: "# 项目概览\n\n一个清晰、专注的个人工作区。\n\n## 架构\n\n| 层级 | 说明 |\n| --- | --- |\n| 前端 | React + Next.js |\n| 数据 | Supabase |\n\n## 改进方向\n\n- 统一组件与交互\n- 关注无障碍与移动体验\n", created_at: timestamp }];
-  const state = { errors, failMaterial: false, materialWrites: 0, materialIds: [] as string[] };
+  const state = {
+    errors, failMaterial: false, materialWrites: 0, materialIds: [] as string[],
+    todos, todoReads: 0, todoWrites: [] as { id: string; patch: Partial<TodoFixture> }[],
+    todoPatchPlans: new Map<string, TodoPatchPlan[]>(),
+    holdTodoReads: undefined as Promise<void> | undefined,
+  };
   await page.route("**/*", async (route) => {
     const request = route.request();
     const url = new URL(request.url());
@@ -34,11 +56,44 @@ async function isolate(page: Page, context: BrowserContext, authenticated = true
     const respond = (data: unknown, status = 200, headers: Record<string, string> = {}) => route.fulfill({ status, contentType: "application/json", headers: { "access-control-allow-origin": "*", "access-control-expose-headers": "content-range", ...headers }, body: JSON.stringify(data) });
     if (request.method() === "OPTIONS") return respond(null);
     if (url.pathname === "/auth/v1/user") return respond(authenticated ? user : { message: "No session" }, authenticated ? 200 : 401);
-    if (url.pathname.startsWith("/rest/v1/rpc/")) return respond(null);
+    if (url.pathname.startsWith("/rest/v1/rpc/")) {
+      if (url.pathname.endsWith("/todo_remove")) {
+        const { p_id, p_scope } = request.postDataJSON();
+        const index = todos.findIndex((row) => row.id === p_id);
+        if (index >= 0) {
+          if (todos[index].series_id && p_scope === "single") todos[index].skipped = true;
+          else todos.splice(index, 1);
+        }
+      }
+      return respond(null);
+    }
     if (url.pathname === "/rest/v1/todos") {
+      if (request.method() === "PATCH") {
+        const id = url.searchParams.get("id")?.replace(/^eq\./, "") ?? "";
+        const patch = request.postDataJSON() as Partial<TodoFixture>;
+        const plan = state.todoPatchPlans.get(id)?.shift();
+        state.todoWrites.push({ id, patch });
+        if (plan?.wait) await plan.wait;
+        if (plan?.outcome === "error") return respond({ message: "模拟任务保存失败，请重试", code: "P0001" }, 400);
+        if (plan?.outcome === "empty") return respond(null);
+        const row = todos.find((item) => item.id === id);
+        if (!row || plan?.outcome === "missing") return respond({ message: "Cannot coerce the result to a single JSON object", details: "The result contains 0 rows", code: "PGRST116" }, 406);
+        Object.assign(row, patch);
+        return respond(request.headers().accept?.includes("application/vnd.pgrst.object+json") ? row : [row]);
+      }
+      state.todoReads++;
       const due = url.searchParams.get("due_date");
-      const data = todos.filter((row) => !due || (due.startsWith("eq.") ? row.due_date === due.slice(3) : row.due_date < due.slice(3)));
-      return respond(data, 200, { "content-range": `0-${Math.max(data.length - 1, 0)}/${data.length}` });
+      const filtered = todos.filter((row) =>
+        (!due || (due.startsWith("eq.") ? row.due_date === due.slice(3) : row.due_date < due.slice(3))) &&
+        (!url.searchParams.has("done") || row.done === (url.searchParams.get("done") === "eq.true")) &&
+        (!url.searchParams.has("skipped") || row.skipped === (url.searchParams.get("skipped") === "eq.true")),
+      );
+      const offset = Number(url.searchParams.get("offset") ?? 0);
+      const limit = Number(url.searchParams.get("limit") ?? filtered.length);
+      // Snapshot before waiting, as a real in-flight read may return stale data.
+      const data = filtered.slice(offset, offset + limit).map((row) => ({ ...row }));
+      if (state.holdTodoReads) await state.holdTodoReads;
+      return respond(data, 200, { "content-range": `${offset}-${Math.max(offset + data.length - 1, offset)}/${filtered.length}` });
     }
     if (url.pathname === "/rest/v1/materials") {
       if (request.method() !== "GET") {
@@ -60,6 +115,226 @@ async function isolate(page: Page, context: BrowserContext, authenticated = true
 async function noOverflow(page: Page) {
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 }
+
+function todoRow(page: Page, text: string) {
+  return page.locator("div.group").filter({ has: page.getByText(text, { exact: true }) });
+}
+
+async function watchTodoList(page: Page, survivor: Locator) {
+  const element = await survivor.elementHandle();
+  if (!element) throw new Error("Expected a mounted task before observing list stability");
+  await page.evaluate(() => {
+    const main = document.querySelector<HTMLElement>("#main-content")!;
+    main.dataset.testLoadingFlash = "false";
+    const selector = '[role="status"][aria-label="正在加载"]';
+    new MutationObserver((records) => {
+      for (const record of records) for (const node of Array.from(record.addedNodes)) {
+        if (node instanceof Element && (node.matches(selector) || node.querySelector(selector))) main.dataset.testLoadingFlash = "true";
+      }
+    }).observe(main, { childList: true, subtree: true });
+  });
+  return async () => {
+    expect(await element.evaluate((node) => node.isConnected), "unaffected task DOM should not be replaced").toBe(true);
+    await expect(page.locator("#main-content")).toHaveAttribute("data-test-loading-flash", "false");
+    await expect(page.getByRole("status", { name: "正在加载", exact: true })).toHaveCount(0);
+  };
+}
+
+test.describe("touch task completion", () => {
+  test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+
+  test("slow concurrent completions update immediately and reconcile out of order without clearing the list", async ({ page, context }, info) => {
+    const state = await isolate(page, context);
+    const firstId = state.todos[0].id;
+    const second = todoFixture("77777777-7777-4777-8777-777777777777", "回复项目消息", { position: 3072 });
+    state.todos.push(second, todoFixture("88888888-8888-4888-8888-888888888888", "下一件待办"));
+    const first = gate();
+    const secondGate = gate();
+    state.todoPatchPlans.set(firstId, [{ wait: first.wait }]);
+    state.todoPatchPlans.set(second.id, [{ wait: secondGate.wait }]);
+    try {
+      await page.goto("/todos");
+      await expect(todoRow(page, "下一件待办")).toBeVisible();
+      const stable = await watchTodoList(page, todoRow(page, "下一件待办"));
+      const initialReads = state.todoReads;
+      await page.getByText("已完成 · 1", { exact: true }).tap();
+      await todoRow(page, "每天读书").getByRole("button", { name: "标记完成", exact: true }).tap();
+      await expect.poll(() => state.todoWrites.length).toBe(1);
+      await expect(page.getByText("已完成 · 2", { exact: true })).toBeVisible();
+      await expect(todoRow(page, "每天读书").getByRole("button", { name: "标记未完成", exact: true })).toBeDisabled();
+      await expect(todoRow(page, second.text).getByRole("button", { name: "标记完成", exact: true })).toBeEnabled();
+      await expect(page.getByLabel("选择任务日期")).toBeDisabled();
+      await expect(page.getByLabel("任务内容", { exact: true })).toBeDisabled();
+      await expect(todoRow(page, "下一件待办").getByRole("button", { name: "编辑", exact: true })).toBeDisabled();
+      await stable();
+
+      await todoRow(page, second.text).getByRole("button", { name: "标记完成", exact: true }).tap();
+      await expect.poll(() => state.todoWrites.length).toBe(2);
+      await expect(page.getByRole("progressbar", { name: "当日完成度" })).toHaveAttribute("aria-valuenow", "75");
+      secondGate.release();
+      await expect(todoRow(page, second.text).getByRole("button", { name: "标记未完成", exact: true })).toBeEnabled();
+      await expect(todoRow(page, "每天读书").getByRole("button", { name: "标记未完成", exact: true })).toBeDisabled();
+      await expect(todoRow(page, "下一件待办").getByRole("button", { name: "标记完成", exact: true })).toBeEnabled();
+      await stable();
+      first.release();
+      await expect(page.getByLabel("选择任务日期")).toBeEnabled();
+      await expect(page.getByText("已完成 · 3", { exact: true })).toBeVisible();
+      expect(state.todos.find((item) => item.id === firstId)?.done).toBe(true);
+      expect(second.done).toBe(true);
+      expect(state.todoReads, "completion should not refetch every task").toBe(initialReads);
+      await stable();
+      await noOverflow(page);
+      await page.evaluate(() => window.scrollTo(0, 0));
+      await page.screenshot({ path: info.outputPath("touch-concurrent-complete.png"), fullPage: true });
+      expect(state.errors).toEqual([]);
+    } finally { first.release(); secondGate.release(); }
+  });
+
+  test("one failed completion rolls back only that task and can be retried", async ({ page, context }, info) => {
+    const state = await isolate(page, context);
+    const firstId = state.todos[0].id;
+    const second = todoFixture("77777777-7777-4777-8777-777777777777", "另一项可以完成的事");
+    state.todos.push(second, todoFixture("88888888-8888-4888-8888-888888888888", "保持可操作的任务", { position: 5120 }));
+    const failure = gate();
+    state.todoPatchPlans.set(firstId, [{ wait: failure.wait, outcome: "error" }]);
+    try {
+      await page.goto("/todos");
+      await expect(todoRow(page, "保持可操作的任务")).toBeVisible();
+      const stable = await watchTodoList(page, todoRow(page, "保持可操作的任务"));
+      await page.getByText("已完成 · 1", { exact: true }).tap();
+      await todoRow(page, "每天读书").getByRole("button", { name: "标记完成", exact: true }).tap();
+      await expect.poll(() => state.todoWrites.length).toBe(1);
+      await todoRow(page, second.text).getByRole("button", { name: "标记完成", exact: true }).tap();
+      await expect(todoRow(page, second.text).getByRole("button", { name: "标记未完成", exact: true })).toBeEnabled();
+      failure.release();
+      await expect(page.locator("#main-content").getByRole("alert")).toContainText("模拟任务保存失败");
+      await expect(todoRow(page, "每天读书").getByRole("button", { name: "标记完成", exact: true })).toBeEnabled();
+      await expect(todoRow(page, second.text).getByRole("button", { name: "标记未完成", exact: true })).toHaveAttribute("aria-pressed", "true");
+      await expect(page.getByText("已完成 · 2", { exact: true })).toBeVisible();
+      expect(state.todos.find((item) => item.id === firstId)?.done).toBe(false);
+      expect(second.done).toBe(true);
+      await stable();
+      await page.evaluate(() => window.scrollTo(0, 0));
+      await page.screenshot({ path: info.outputPath("touch-complete-rollback.png"), fullPage: true });
+
+      await todoRow(page, "每天读书").getByRole("button", { name: "标记完成", exact: true }).tap();
+      await expect(todoRow(page, "每天读书").getByRole("button", { name: "标记未完成", exact: true })).toBeEnabled();
+      await expect(page.locator("#main-content").getByRole("alert")).toHaveCount(0);
+      await expect(page.getByText("已完成 · 3", { exact: true })).toBeVisible();
+      expect(state.todoWrites).toHaveLength(3);
+      await stable();
+      expect(state.errors).toEqual([]);
+    } finally { failure.release(); }
+  });
+
+  for (const outcome of ["empty", "missing"] as const) {
+    test(`${outcome} single-row update response cannot falsely confirm completion`, async ({ page, context }) => {
+      const state = await isolate(page, context);
+      const pending = gate();
+      state.todoPatchPlans.set(state.todos[0].id, [{ wait: pending.wait, outcome }]);
+      try {
+        await page.goto("/todos");
+        await todoRow(page, "每天读书").getByRole("button", { name: "标记完成", exact: true }).tap();
+        await expect.poll(() => state.todoWrites.length).toBe(1);
+        await expect(page.getByText("已完成 · 2", { exact: true })).toBeVisible();
+        pending.release();
+        await expect(page.locator("#main-content").getByRole("alert")).toBeVisible();
+        await expect(todoRow(page, "每天读书").getByRole("button", { name: "标记完成", exact: true })).toBeEnabled();
+        await expect(page.getByText("已完成 · 1", { exact: true })).toBeVisible();
+        await expect(page.getByRole("status").filter({ hasText: "本次任务已完成" })).toHaveCount(0);
+        expect(state.todos[0].done).toBe(false);
+        expect(state.errors).toEqual([]);
+      } finally { pending.release(); }
+    });
+  }
+
+  test("deletion revalidates in the background and feedback does not shift surviving tasks", async ({ page, context }, info) => {
+    const state = await isolate(page, context);
+    const removed = todoFixture("77777777-7777-4777-8777-777777777777", "删除这一项");
+    state.todos.push(removed);
+    const reads = gate();
+    try {
+      await page.goto("/todos");
+      const survivor = todoRow(page, "每天读书");
+      await expect(survivor).toBeVisible();
+      const initialY = await survivor.evaluate((node) => node.getBoundingClientRect().top + scrollY);
+      const stable = await watchTodoList(page, survivor);
+      const initialReads = state.todoReads;
+      state.holdTodoReads = reads.wait;
+      await todoRow(page, removed.text).getByRole("button", { name: "删除", exact: true }).tap();
+      const dialog = page.getByRole("dialog", { name: "删除任务" });
+      await dialog.getByRole("button", { name: "确认删除", exact: true }).tap();
+      await expect.poll(() => state.todoReads).toBeGreaterThan(initialReads);
+      await stable();
+      reads.release();
+      await expect(dialog).not.toBeVisible();
+      await expect(page.getByText(removed.text, { exact: true })).toHaveCount(0);
+      await expect(page.getByRole("status").filter({ hasText: "任务已删除" })).toBeVisible();
+      expect(await survivor.evaluate((node) => node.getBoundingClientRect().top + scrollY)).toBeCloseTo(initialY, 0);
+      await stable();
+      await page.evaluate(() => window.scrollTo(0, 0));
+      await page.screenshot({ path: info.outputPath("touch-delete-feedback.png"), fullPage: true });
+      expect(state.errors).toEqual([]);
+    } finally { reads.release(); }
+  });
+
+  test("overdue count and skipped recovery update before their saves finish", async ({ page, context }) => {
+    const state = await isolate(page, context);
+    const yesterday = new Date(Date.parse(`${today}T00:00:00Z`) - 86_400_000).toISOString().slice(0, 10);
+    const overdue = todoFixture("77777777-7777-4777-8777-777777777777", "昨日未完成的任务", { due_date: yesterday });
+    const skipped = todoFixture("88888888-8888-4888-8888-888888888888", "恢复跳过的任务", { skipped: true, repeat_rule: "daily", series_id: "88888888-8888-4888-8888-888888888888", occurrence_date: today });
+    state.todos.push(overdue, skipped);
+    const overdueSave = gate();
+    const skippedSave = gate();
+    state.todoPatchPlans.set(overdue.id, [{ wait: overdueSave.wait }]);
+    state.todoPatchPlans.set(skipped.id, [{ wait: skippedSave.wait }]);
+    try {
+      await page.goto("/todos");
+      await expect(page.getByText("逾期未完成 · 1", { exact: true })).toBeVisible();
+      const stable = await watchTodoList(page, todoRow(page, "每天读书"));
+      await todoRow(page, overdue.text).getByRole("button", { name: "标记完成", exact: true }).tap();
+      await expect.poll(() => state.todoWrites.length).toBe(1);
+      await expect(page.getByText("逾期未完成 · 1", { exact: true })).toHaveCount(0);
+      await page.getByText("已跳过 · 1（可恢复）", { exact: true }).tap();
+      await page.getByRole("button", { name: "恢复这次", exact: true }).tap();
+      await expect.poll(() => state.todoWrites.length).toBe(2);
+      await expect(todoRow(page, skipped.text)).toBeVisible();
+      await expect(todoRow(page, skipped.text).getByRole("button", { name: "标记完成", exact: true })).toBeDisabled();
+      await expect(page.getByText("已跳过 · 1（可恢复）", { exact: true })).toHaveCount(0);
+      skippedSave.release();
+      await expect(todoRow(page, skipped.text).getByRole("button", { name: "标记完成", exact: true })).toBeEnabled();
+      overdueSave.release();
+      await expect(page.getByLabel("选择任务日期")).toBeEnabled();
+      expect(overdue.done).toBe(true);
+      expect(skipped.skipped).toBe(false);
+      await stable();
+      expect(state.errors).toEqual([]);
+    } finally { overdueSave.release(); skippedSave.release(); }
+  });
+
+  test("a stale background response cannot undo a newer completion", async ({ page, context }) => {
+    const state = await isolate(page, context);
+    const reads = gate();
+    try {
+      await page.goto("/todos");
+      await expect(todoRow(page, "每天读书")).toBeVisible();
+      await page.getByText("已完成 · 1", { exact: true }).tap();
+      const initialReads = state.todoReads;
+      state.holdTodoReads = reads.wait;
+      await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+      await expect.poll(() => state.todoReads).toBe(initialReads + 2);
+      await todoRow(page, "每天读书").getByRole("button", { name: "标记完成", exact: true }).tap();
+      await expect(todoRow(page, "每天读书").getByRole("button", { name: "标记未完成", exact: true })).toBeEnabled();
+      const dayResponse = page.waitForResponse((response) => response.url().includes("/rest/v1/todos?") && response.request().method() === "GET" && new URL(response.url()).searchParams.get("due_date")?.startsWith("eq.") === true);
+      reads.release();
+      await (await dayResponse).finished();
+      await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+      await expect(page.getByText("已完成 · 2", { exact: true })).toBeVisible();
+      await expect(todoRow(page, "每天读书").getByRole("button", { name: "标记未完成", exact: true })).toHaveAttribute("aria-pressed", "true");
+      expect(state.errors).toEqual([]);
+    } finally { reads.release(); }
+  });
+});
 
 for (const mode of [
   { name: "desktop light", width: 1440, theme: "light" },
