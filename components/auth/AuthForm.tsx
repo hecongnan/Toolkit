@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Sparkles } from "lucide-react";
+import { Eye, EyeOff, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
@@ -18,6 +18,7 @@ interface AuthFormProps {
 export function AuthForm({ mode }: AuthFormProps) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [passwordVisible, setPasswordVisible] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -29,6 +30,7 @@ export function AuthForm({ mode }: AuthFormProps) {
   const isLogin = mode === "login";
 
   useEffect(() => {
+    setPasswordVisible(false);
     if (isLogin && new URLSearchParams(window.location.search).get("password_reset") === "1") {
       setMessage("密码已更新，请使用新密码登录。");
     }
@@ -115,18 +117,31 @@ export function AuthForm({ mode }: AuthFormProps) {
               />
             </label>
 
-            <label className="block">
-              <span className="mb-1.5 block text-xs font-medium text-zinc-400">密码</span>
-              <Input
-                type="password"
-                required
-                minLength={6}
-                autoComplete={isLogin ? "current-password" : "new-password"}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="至少 6 位"
-              />
-            </label>
+            <div>
+              <label htmlFor="auth-password" className="mb-1.5 block text-xs font-medium text-[color:var(--text-muted)]">密码</label>
+              <div className="relative">
+                <Input
+                  id="auth-password"
+                  type={passwordVisible ? "text" : "password"}
+                  required
+                  minLength={isLogin ? undefined : 6}
+                  aria-describedby={isLogin ? undefined : "password-help"}
+                  autoComplete={isLogin ? "current-password" : "new-password"}
+                  autoCapitalize="none"
+                  spellCheck={false}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder={isLogin ? "输入密码" : "设置密码"}
+                  className="pr-14"
+                />
+                <button type="button" aria-label={passwordVisible ? "隐藏密码" : "显示密码"} aria-controls="auth-password" aria-pressed={passwordVisible}
+                  onPointerDown={(event) => event.preventDefault()} onClick={() => setPasswordVisible((visible) => !visible)}
+                  className="button icon-button absolute right-1 top-0 focus-ring">
+                  {passwordVisible ? <EyeOff size={18} aria-hidden /> : <Eye size={18} aria-hidden />}
+                </button>
+              </div>
+              {!isLogin && <p id="password-help" className="mt-2 text-xs leading-5 text-[color:var(--text-muted)]">至少 6 位。请使用不易被猜到的密码。</p>}
+            </div>
 
             {error && (
               <div role="alert" className="status-error rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-3 text-sm">

@@ -12,6 +12,8 @@ type TodoFixture = {
   scheduled_time: string | null; position: number; created_at: string; updated_at: string;
 };
 type TodoPatchPlan = { wait?: Promise<void>; outcome?: "error" | "empty" | "missing" };
+type ReadSection = "todos" | "materials" | "reports";
+type ReadPlan = { wait?: Promise<void>; fail?: boolean };
 
 function todoFixture(id: string, text: string, overrides: Partial<TodoFixture> = {}): TodoFixture {
   return { id, user_id: userId, text, priority: 2, done: false, skipped: false, repeat_rule: "none", series_id: null, due_date: today, occurrence_date: null, scheduled_time: null, position: 4096, created_at: timestamp, updated_at: timestamp, ...overrides };
@@ -43,9 +45,12 @@ async function isolate(page: Page, context: BrowserContext, authenticated = true
   const reports = [{ id: "66666666-6666-4666-8666-666666666666", user_id: userId, repo_url: "https://github.com/example/toolkit", owner: "example", repo: "toolkit", branch: "main", summary: "一个清晰、专注的个人工作区。", markdown: "# 项目概览\n\n一个清晰、专注的个人工作区。\n\n## 架构\n\n| 层级 | 说明 |\n| --- | --- |\n| 前端 | React + Next.js |\n| 数据 | Supabase |\n\n## 改进方向\n\n- 统一组件与交互\n- 关注无障碍与移动体验\n", created_at: timestamp }];
   const state = {
     errors, failMaterial: false, materialWrites: 0, materialIds: [] as string[],
-    todos, todoReads: 0, todoWrites: [] as { id: string; patch: Partial<TodoFixture> }[],
+    todos, materials, reports, todoReads: 0, todoWrites: [] as { id: string; patch: Partial<TodoFixture> }[],
     todoPatchPlans: new Map<string, TodoPatchPlan[]>(),
     holdTodoReads: undefined as Promise<void> | undefined,
+    readPlans: new Map<ReadSection, ReadPlan[]>(),
+    readCounts: { todos: 0, materials: 0, reports: 0 },
+    failRecurrence: false,
   };
   await page.route("**/*", async (route) => {
     const request = route.request();
@@ -54,9 +59,18 @@ async function isolate(page: Page, context: BrowserContext, authenticated = true
     // Deny every unexpected external request, including actual AI calls.
     if (url.hostname !== host) { errors.push(`Unexpected external request: ${url.hostname}`); return route.abort(); }
     const respond = (data: unknown, status = 200, headers: Record<string, string> = {}) => route.fulfill({ status, contentType: "application/json", headers: { "access-control-allow-origin": "*", "access-control-expose-headers": "content-range", ...headers }, body: JSON.stringify(data) });
+    const plannedRead = async (section: ReadSection, data: unknown, headers: Record<string, string> = {}) => {
+      state.readCounts[section]++;
+      const plan = state.readPlans.get(section)?.shift();
+      const body = JSON.parse(JSON.stringify(data));
+      if (plan?.wait) await plan.wait;
+      if (plan?.fail) return respond({ message: "模拟模块加载失败，请重试", code: "P0001" }, 400);
+      return respond(body, 200, headers);
+    };
     if (request.method() === "OPTIONS") return respond(null);
     if (url.pathname === "/auth/v1/user") return respond(authenticated ? user : { message: "No session" }, authenticated ? 200 : 401);
     if (url.pathname.startsWith("/rest/v1/rpc/")) {
+      if (url.pathname.endsWith("/todo_ensure_occurrences") && state.failRecurrence) return respond({ message: "模拟重复计划失败", code: "P0001" }, 400);
       if (url.pathname.endsWith("/todo_remove")) {
         const { p_id, p_scope } = request.postDataJSON();
         const index = todos.findIndex((row) => row.id === p_id);
@@ -93,7 +107,7 @@ async function isolate(page: Page, context: BrowserContext, authenticated = true
       // Snapshot before waiting, as a real in-flight read may return stale data.
       const data = filtered.slice(offset, offset + limit).map((row) => ({ ...row }));
       if (state.holdTodoReads) await state.holdTodoReads;
-      return respond(data, 200, { "content-range": `${offset}-${Math.max(offset + data.length - 1, offset)}/${filtered.length}` });
+      return plannedRead("todos", data, { "content-range": `${offset}-${Math.max(offset + data.length - 1, offset)}/${filtered.length}` });
     }
     if (url.pathname === "/rest/v1/materials") {
       if (request.method() !== "GET") {
@@ -102,9 +116,9 @@ async function isolate(page: Page, context: BrowserContext, authenticated = true
         if (state.failMaterial) return respond({ message: "模拟保存失败，请重试", code: "P0001" }, 400);
         return respond(null);
       }
-      return respond(materials);
+      return plannedRead("materials", materials);
     }
-    if (url.pathname === "/rest/v1/analysis_reports") return respond(reports);
+    if (url.pathname === "/rest/v1/analysis_reports") return plannedRead("reports", reports);
     if (url.pathname === "/rest/v1/analysis_chats") return respond([]);
     errors.push(`Unhandled preview request: ${url.pathname}`);
     return respond({ message: "Unhandled preview request" }, 400);
@@ -336,6 +350,156 @@ test.describe("touch task completion", () => {
   });
 });
 
+test.describe("welcome workspace", () => {
+  test.use({ viewport: { width: 375, height: 900 }, hasTouch: true, isMobile: true });
+
+  test("tasks are usable while reports are slow and material failure retries independently", async ({ page, context }) => {
+    const state = await isolate(page, context);
+    const slowReport = gate();
+    state.readPlans.set("reports", [{ wait: slowReport.wait }]);
+    state.readPlans.set("materials", [{ fail: true }]);
+    try {
+      await page.goto("/");
+      const task = page.getByRole("link", { name: "在每日待办中查看：每天读书", exact: true });
+      await expect(task).toBeVisible();
+      const node = await task.elementHandle();
+      await expect(page.getByRole("status", { name: "正在加载项目报告", exact: true })).toBeVisible();
+      await expect(page.getByRole("region", { name: "学习资料加载状态" }).getByRole("alert")).toContainText("学习资料暂时无法加载");
+      const before = { ...state.readCounts };
+      await page.getByRole("button", { name: "重试资料", exact: true }).tap();
+      await expect(page.getByRole("region", { name: "学习资料加载状态" })).toHaveCount(0);
+      await expect(page.getByRole("link", { name: "学习资料", exact: true })).toContainText("2");
+      expect(state.readCounts).toEqual({ ...before, materials: before.materials + 1 });
+      expect(await node?.evaluate((element) => element.isConnected)).toBe(true);
+      slowReport.release();
+      await expect(page.getByText("example/toolkit", { exact: true })).toBeVisible();
+      expect(state.errors).toEqual([]);
+    } finally { slowReport.release(); }
+  });
+
+  test("a failed recurrence request only affects tasks", async ({ page, context }) => {
+    const state = await isolate(page, context);
+    state.failRecurrence = true;
+    await page.goto("/");
+    await expect(page.getByRole("region", { name: "今日待办", exact: true }).getByRole("alert")).toContainText("今日待办暂时无法加载");
+    await expect(page.getByText("example/toolkit", { exact: true })).toBeVisible();
+    await expect(page.getByRole("link", { name: "学习资料", exact: true })).toContainText("2");
+    const before = { ...state.readCounts };
+    state.failRecurrence = false;
+    await page.getByRole("button", { name: "重试待办", exact: true }).tap();
+    await expect(page.getByRole("link", { name: "在每日待办中查看：每天读书", exact: true })).toBeVisible();
+    expect(state.readCounts.materials).toBe(before.materials);
+    expect(state.readCounts.reports).toBe(before.reports);
+    expect(state.errors).toEqual([]);
+  });
+
+  test("refresh and failed report retry retain visible task and report content", async ({ page, context }) => {
+    const state = await isolate(page, context);
+    const slowReport = gate();
+    try {
+      await page.goto("/");
+      const task = page.getByRole("link", { name: "在每日待办中查看：每天读书", exact: true });
+      const report = page.getByText("example/toolkit", { exact: true });
+      await expect(report).toBeVisible();
+      await expect(page.getByRole("button", { name: "刷新概览", exact: true })).toBeEnabled();
+      const taskNode = await task.elementHandle();
+      const reportNode = await report.elementHandle();
+      const initialY = await task.evaluate((element) => element.getBoundingClientRect().top + scrollY);
+      state.readPlans.set("reports", [{ wait: slowReport.wait, fail: true }]);
+      await page.getByRole("button", { name: "刷新概览", exact: true }).tap();
+      await expect(page.getByRole("region", { name: "最近分析", exact: true })).toHaveAttribute("aria-busy", "true");
+      await expect(task).toBeVisible();
+      await expect(report).toBeVisible();
+      await expect(page.getByRole("status", { name: /正在加载/ })).toHaveCount(0);
+      expect(await task.evaluate((element) => element.getBoundingClientRect().top + scrollY)).toBeCloseTo(initialY, 0);
+      slowReport.release();
+      await expect(page.getByRole("region", { name: "最近分析", exact: true }).getByRole("alert")).toContainText("已保留上次内容");
+      expect(await taskNode?.evaluate((element) => element.isConnected)).toBe(true);
+      expect(await reportNode?.evaluate((element) => element.isConnected)).toBe(true);
+      const before = { ...state.readCounts };
+      await page.getByRole("button", { name: "重试报告", exact: true }).tap();
+      await expect(page.getByRole("region", { name: "最近分析", exact: true })).toHaveAttribute("aria-busy", "false");
+      await expect(page.getByRole("region", { name: "最近分析", exact: true }).getByRole("alert")).toHaveCount(0);
+      expect(state.readCounts).toEqual({ ...before, reports: before.reports + 1 });
+      expect(state.errors).toEqual([]);
+    } finally { slowReport.release(); }
+  });
+
+  test("an empty account has one clear starting point and optional AI setup", async ({ page, context }, info) => {
+    const state = await isolate(page, context);
+    state.todos.splice(0);
+    state.materials.splice(0);
+    state.reports.splice(0);
+    await page.goto("/");
+    await expect(page.getByRole("heading", { name: "从第一条待办开始", exact: true })).toBeVisible();
+    await expect(page.getByRole("region", { name: "工作区摘要", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("link", { name: "AI 可以稍后设置", exact: true })).toHaveAttribute("href", "/settings");
+    await noOverflow(page);
+    await page.screenshot({ path: info.outputPath("welcome-first-task.png"), fullPage: true });
+    await page.getByRole("link", { name: "创建第一条待办", exact: true }).tap();
+    await expect(page.getByRole("heading", { name: "每日待办", exact: true })).toBeVisible();
+    await expect(page.getByLabel("任务内容", { exact: true })).toBeEnabled();
+    expect(state.errors).toEqual([]);
+  });
+
+  test("an empty day with future tasks is not treated as a new account", async ({ page, context }) => {
+    const state = await isolate(page, context);
+    const tomorrow = new Date(Date.parse(`${today}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10);
+    state.todos.splice(0, state.todos.length, todoFixture("77777777-7777-4777-8777-777777777777", "明天已有安排", { due_date: tomorrow }));
+    state.materials.splice(0);
+    state.reports.splice(0);
+    await page.goto("/");
+    await expect(page.getByText("今天还没有安排", { exact: true })).toBeVisible();
+    await expect(page.getByRole("region", { name: "工作区摘要", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "从第一条待办开始", exact: true })).toHaveCount(0);
+    expect(state.errors).toEqual([]);
+  });
+
+  test("mobile shows tasks before statistics, keeps times and provides a real viewing link", async ({ page, context }, info) => {
+    await isolate(page, context);
+    await page.goto("/");
+    const taskRegion = page.getByRole("region", { name: "今日待办", exact: true });
+    const summary = page.getByRole("region", { name: "工作区摘要", exact: true });
+    await expect(taskRegion.getByText("08:30", { exact: true })).toBeVisible();
+    const taskBox = await taskRegion.boundingBox();
+    const summaryBox = await summary.boundingBox();
+    expect(summaryBox!.y).toBeGreaterThanOrEqual(taskBox!.y + taskBox!.height);
+    await noOverflow(page);
+    await page.screenshot({ path: info.outputPath("welcome-mobile-tasks-first.png"), fullPage: true });
+    await taskRegion.getByRole("link", { name: "在每日待办中查看：每天读书", exact: true }).tap();
+    await expect(page).toHaveURL(/\/todos$/);
+    await expect(todoRow(page, "每天读书")).toBeVisible();
+  });
+
+  test("password visibility preserves input, does not submit, and supports keyboard toggling", async ({ page, context }, info) => {
+    const state = await isolate(page, context, false);
+    for (const path of ["/login", "/register"]) {
+      await page.goto(path);
+      const password = page.getByLabel("密码", { exact: true });
+      await password.fill("preview-password");
+      await password.focus();
+      const show = page.getByRole("button", { name: "显示密码", exact: true });
+      const box = await show.boundingBox();
+      expect(box!.width).toBeGreaterThanOrEqual(44);
+      expect(box!.height).toBeGreaterThanOrEqual(44);
+      await show.tap();
+      await expect(password).toHaveAttribute("type", "text");
+      await expect(password).toHaveValue("preview-password");
+      await expect(password).toBeFocused();
+      const hide = page.getByRole("button", { name: "隐藏密码", exact: true });
+      await hide.focus();
+      await page.keyboard.press("Space");
+      await expect(password).toHaveAttribute("type", "password");
+      await expect(password).toHaveValue("preview-password");
+      if (path === "/login") await expect(password).toHaveAttribute("placeholder", "输入密码");
+      else await expect(page.locator("#password-help")).toBeVisible();
+      await noOverflow(page);
+      await page.screenshot({ path: info.outputPath(`welcome-${path.slice(1)}-password.png`), fullPage: true });
+    }
+    expect(state.errors).toEqual([]);
+  });
+});
+
 for (const mode of [
   { name: "desktop light", width: 1440, theme: "light" },
   { name: "desktop dark", width: 1440, theme: "dark" },
@@ -512,7 +676,7 @@ test("material creation gets a fresh draft when reopened during the exit transit
 test("mobile layout accommodates enlarged text without horizontal scrolling", async ({ page, context }) => {
   await isolate(page, context);
   await page.setViewportSize({ width: 375, height: 1000 });
-  for (const path of ["/todos", "/learning", "/settings"]) {
+  for (const path of ["/", "/todos", "/learning", "/settings"]) {
     await page.goto(path);
     await expect(page.locator("#main-content h1")).toBeVisible();
     await page.evaluate(() => { document.documentElement.style.fontSize = "200%"; });
