@@ -14,6 +14,7 @@ type TodoFixture = {
 type TodoPatchPlan = { wait?: Promise<void>; outcome?: "error" | "empty" | "missing" };
 type ReadSection = "todos" | "materials" | "reports";
 type ReadPlan = { wait?: Promise<void>; fail?: boolean };
+type MaterialFixture = { id: string; user_id: string; title: string; category: string; tags: string[]; status: "todo" | "doing" | "done"; priority: number; notes: string | null; url: string | null; created_at: string; updated_at: string };
 
 function todoFixture(id: string, text: string, overrides: Partial<TodoFixture> = {}): TodoFixture {
   return { id, user_id: userId, text, priority: 2, done: false, skipped: false, repeat_rule: "none", series_id: null, due_date: today, occurrence_date: null, scheduled_time: null, position: 4096, created_at: timestamp, updated_at: timestamp, ...overrides };
@@ -38,13 +39,15 @@ async function isolate(page: Page, context: BrowserContext, authenticated = true
     { id: "22222222-2222-4222-8222-222222222222", user_id: userId, text: "每天读书", priority: 2, done: false, skipped: false, repeat_rule: "daily", series_id: "22222222-2222-4222-8222-222222222222", due_date: today, occurrence_date: today, scheduled_time: "08:30:00", position: 1024, created_at: timestamp, updated_at: timestamp },
     { id: "33333333-3333-4333-8333-333333333333", user_id: userId, text: "整理学习资料", priority: 1, done: true, skipped: false, repeat_rule: "none", series_id: null, due_date: today, occurrence_date: null, scheduled_time: null, position: 2048, created_at: timestamp, updated_at: timestamp },
   ];
-  const materials = [
+  const materials: MaterialFixture[] = [
     { id: "44444444-4444-4444-8444-444444444444", user_id: userId, title: "React 组件设计笔记", category: "前端", tags: ["React", "组件"], status: "doing", priority: 2, notes: "把复杂的问题拆成小而清晰的组件。", url: "https://react.dev", created_at: timestamp, updated_at: timestamp },
     { id: "55555555-5555-4555-8555-555555555555", user_id: userId, title: "无障碍界面实践", category: "设计", tags: ["A11y"], status: "todo", priority: 1, notes: "为键盘、触摸和不同的视觉需求留出空间。", url: null, created_at: timestamp, updated_at: timestamp },
   ];
   const reports = [{ id: "66666666-6666-4666-8666-666666666666", user_id: userId, repo_url: "https://github.com/example/toolkit", owner: "example", repo: "toolkit", branch: "main", summary: "一个清晰、专注的个人工作区。", markdown: "# 项目概览\n\n一个清晰、专注的个人工作区。\n\n## 架构\n\n| 层级 | 说明 |\n| --- | --- |\n| 前端 | React + Next.js |\n| 数据 | Supabase |\n\n## 改进方向\n\n- 统一组件与交互\n- 关注无障碍与移动体验\n", created_at: timestamp }];
   const state = {
     errors, failMaterial: false, materialWrites: 0, materialIds: [] as string[],
+    materialPlans: new Map<string, TodoPatchPlan[]>(),
+    materialRequests: [] as { id: string; method: string; payload: Partial<MaterialFixture> }[],
     todos, materials, reports, todoReads: 0, todoWrites: [] as { id: string; patch: Partial<TodoFixture> }[],
     todoPatchPlans: new Map<string, TodoPatchPlan[]>(),
     holdTodoReads: undefined as Promise<void> | undefined,
@@ -111,10 +114,22 @@ async function isolate(page: Page, context: BrowserContext, authenticated = true
     }
     if (url.pathname === "/rest/v1/materials") {
       if (request.method() !== "GET") {
+        const payload = request.method() === "DELETE" ? {} : request.postDataJSON() as Partial<MaterialFixture>;
+        const id = payload.id ?? url.searchParams.get("id")?.replace(/^eq\./, "") ?? "";
+        const plan = state.materialPlans.get(id)?.shift();
         state.materialWrites++;
-        state.materialIds.push(request.postDataJSON().id);
-        if (state.failMaterial) return respond({ message: "模拟保存失败，请重试", code: "P0001" }, 400);
-        return respond(null);
+        state.materialIds.push(id);
+        state.materialRequests.push({ id, method: request.method(), payload });
+        if (plan?.wait) await plan.wait;
+        if (state.failMaterial || plan?.outcome === "error") return respond({ message: "模拟保存失败，请重试", code: "P0001" }, 400);
+        if (plan?.outcome === "empty") return respond(null);
+        const index = materials.findIndex((row) => row.id === id);
+        if (plan?.outcome === "missing" || (index < 0 && request.method() !== "POST")) return respond({ message: "Cannot coerce the result to a single JSON object", code: "PGRST116" }, 406);
+        if (request.method() === "DELETE") { materials.splice(index, 1); return respond({ id }); }
+        if (index >= 0) Object.assign(materials[index], payload);
+        else materials.push(payload as MaterialFixture);
+        const saved = materials.find((row) => row.id === id)!;
+        return respond(request.headers().accept?.includes("application/vnd.pgrst.object+json") ? saved : [saved]);
       }
       return plannedRead("materials", materials);
     }
@@ -517,6 +532,243 @@ test.describe("task undo and mobile menu", () => {
     await page.getByRole("button", { name: "更多操作：更多待办 5", exact: true }).tap();
     await expect(page.getByRole("menuitem", { name: "删除", exact: true })).toBeVisible();
     await noOverflow(page);
+    expect(state.errors).toEqual([]);
+  });
+});
+
+test.describe("learning workflow", () => {
+  test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+  const card = (page: Page, title: string) => page.getByRole("article", { name: title, exact: true });
+
+  test("concurrent status choices save independently, roll back only the failed card, and retry without reload", async ({ page, context }) => {
+    const state = await isolate(page, context);
+    const first = state.materials[0];
+    const second = state.materials[1];
+    const slow = gate();
+    state.materialPlans.set(first.id, [{ wait: slow.wait, outcome: "error" }]);
+    try {
+      await page.goto("/learning");
+      await expect(card(page, second.title)).toBeVisible();
+      const stable = await watchTodoList(page, card(page, second.title));
+      const reads = state.readCounts.materials;
+      await card(page, first.title).getByLabel("学习状态：" + first.title, { exact: true }).selectOption("done");
+      await expect(card(page, first.title)).toHaveAttribute("aria-busy", "true");
+      await expect(card(page, first.title).getByRole("combobox")).toBeDisabled();
+      await expect(card(page, first.title).getByRole("button", { name: "编辑", exact: true })).toBeDisabled();
+      await expect(page.getByRole("button", { name: "刷新资料", exact: true })).toBeDisabled();
+      await card(page, second.title).getByRole("combobox").selectOption("doing");
+      await expect(card(page, second.title)).toHaveAttribute("aria-busy", "false");
+      slow.release();
+      await expect(card(page, first.title).getByRole("alert")).toContainText("已恢复为进行中");
+      await expect(card(page, first.title).getByRole("combobox")).toHaveValue("doing");
+      await expect(card(page, second.title).getByRole("combobox")).toHaveValue("doing");
+      await card(page, first.title).getByRole("button", { name: "重试状态更新", exact: true }).tap();
+      await expect(card(page, first.title).getByRole("combobox")).toHaveValue("done");
+      await expect(card(page, first.title)).toHaveAttribute("aria-busy", "false");
+      await expect(card(page, first.title).getByRole("alert")).toHaveCount(0);
+      expect(first.status).toBe("done");
+      expect(second.status).toBe("doing");
+      expect(state.materialRequests.map((request) => request.id)).toEqual([first.id, second.id, first.id]);
+      expect(state.readCounts.materials).toBe(reads);
+      await stable();
+      expect(state.errors).toEqual([]);
+    } finally { slow.release(); }
+  });
+
+  for (const outcome of ["empty", "missing"] as const) {
+    test(outcome + " update result cannot falsely confirm a learning status", async ({ page, context }) => {
+      const state = await isolate(page, context);
+      state.materialPlans.set(state.materials[0].id, [{ outcome }]);
+      await page.goto("/learning");
+      const target = card(page, state.materials[0].title);
+      await target.getByRole("combobox").selectOption("done");
+      await expect(target.getByRole("alert")).toBeVisible();
+      await expect(target.getByRole("combobox")).toHaveValue("doing");
+      expect(state.materials[0].status).toBe("doing");
+      expect(state.errors).toEqual([]);
+    });
+  }
+
+  test("refresh preserves existing cards and filters, and a stale read cannot overwrite a new status", async ({ page, context }) => {
+    const state = await isolate(page, context);
+    const read = gate();
+    try {
+      await page.goto("/learning");
+      const target = card(page, state.materials[0].title);
+      await expect(target).toBeVisible();
+      const stable = await watchTodoList(page, target);
+      const initialReads = state.readCounts.materials;
+      state.readPlans.set("materials", [{ wait: read.wait }]);
+      await page.getByRole("button", { name: "刷新资料", exact: true }).tap();
+      await expect.poll(() => state.readCounts.materials).toBe(initialReads + 1);
+      await target.getByRole("combobox").selectOption("done");
+      await expect(target).toHaveAttribute("aria-busy", "false");
+      const response = page.waitForResponse((result) => result.url().includes("/rest/v1/materials?") && result.request().method() === "GET");
+      read.release();
+      await (await response).finished();
+      await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+      await expect(target.getByRole("combobox")).toHaveValue("done");
+      await stable();
+      await page.getByLabel("搜索学习资料", { exact: true }).fill("React");
+      await page.getByLabel("资料分类", { exact: true }).selectOption("前端");
+      state.readPlans.set("materials", [{ fail: true }]);
+      await page.getByRole("button", { name: "刷新资料", exact: true }).tap();
+      await expect(page.locator("#main-content").getByRole("alert")).toContainText("现有资料仍可使用");
+      await expect(target).toBeVisible();
+      await expect(page.getByLabel("搜索学习资料", { exact: true })).toHaveValue("React");
+      await expect(page.getByLabel("资料分类", { exact: true })).toHaveValue("前端");
+      await page.getByRole("button", { name: "重试加载", exact: true }).tap();
+      await expect(page.locator("#main-content").getByRole("alert")).toHaveCount(0);
+      await stable();
+      expect(state.errors).toEqual([]);
+    } finally { read.release(); }
+  });
+
+  test("search combines terms across fields, category all stays distinct, counts and sort remain clear", async ({ page, context }, info) => {
+    const state = await isolate(page, context);
+    state.materials[1].category = "all";
+    await page.goto("/learning");
+    const filters = page.getByRole("group", { name: "学习状态筛选", exact: true });
+    await expect(filters.getByRole("button", { name: "全部", exact: true })).toContainText("2");
+    await page.getByLabel("资料排序", { exact: true }).selectOption("priority");
+    await expect(page.getByRole("article").first()).toHaveAttribute("aria-label", state.materials[1].title);
+    await page.getByLabel("搜索学习资料", { exact: true }).fill("ＲＥＡＣＴ 组件");
+    await expect(card(page, state.materials[0].title)).toBeVisible();
+    await expect(card(page, state.materials[1].title)).toHaveCount(0);
+    await expect(filters.getByRole("button", { name: "全部", exact: true })).toContainText("1");
+    await filters.getByRole("button", { name: "已完成", exact: true }).tap();
+    await expect(page.getByText("没有匹配的资料", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "查看全部资料", exact: true }).tap();
+    await expect(page.getByLabel("搜索学习资料", { exact: true })).toBeFocused();
+    await expect(page.getByRole("article")).toHaveCount(2);
+    await page.getByLabel("资料分类", { exact: true }).selectOption("all");
+    await expect(card(page, state.materials[1].title)).toBeVisible();
+    await expect(card(page, state.materials[0].title)).toHaveCount(0);
+    await page.getByRole("button", { name: "清除筛选", exact: true }).tap();
+    await page.getByLabel("搜索学习资料", { exact: true }).fill("react.dev");
+    await expect(card(page, state.materials[0].title)).toBeVisible();
+    await page.getByRole("button", { name: "清除搜索", exact: true }).tap();
+    await expect(page.getByRole("article")).toHaveCount(2);
+    await page.screenshot({ path: info.outputPath("learning-mobile.png"), fullPage: true });
+    expect(state.materialWrites).toBe(0);
+    expect(state.errors).toEqual([]);
+  });
+
+  test("continue learning opens full notes, returns focus, and never activates unsafe stored links", async ({ page, context }, info) => {
+    const state = await isolate(page, context);
+    const notes = "学习目标\n" + "详细笔记。".repeat(80) + "\n下一步：整理组件接口。\n<script>alert('not html')</script>";
+    state.materials[0].notes = notes;
+    state.materials[0].tags.push("进阶", "记录", "复习");
+    state.materials[1].url = "javascript:alert(1)";
+    await page.goto("/learning");
+    const continuing = page.getByRole("region", { name: "继续学习", exact: true });
+    await expect(continuing.getByRole("link", { name: /继续阅读/ })).toHaveAttribute("href", "https://react.dev/");
+    const trigger = continuing.getByRole("button", { name: "查看笔记", exact: true });
+    await trigger.tap();
+    const dialog = page.getByRole("dialog", { name: "资料详情", exact: true });
+    await expect(dialog.getByRole("region", { name: "完整学习笔记", exact: true })).toContainText("下一步：整理组件接口。");
+    await expect(dialog.getByText("#复习", { exact: true })).toBeVisible();
+    expect(await dialog.locator("script").count()).toBe(0);
+    await expect(dialog.locator(".modal-panel")).toHaveCSS("opacity", "1");
+    await page.screenshot({ path: info.outputPath("learning-notes.png") });
+    await page.keyboard.press("Escape");
+    await expect(trigger).toBeFocused();
+    const unsafe = card(page, state.materials[1].title);
+    await expect(unsafe.getByRole("link")).toHaveCount(0);
+    await unsafe.getByRole("button", { name: "查看笔记", exact: true }).tap();
+    await expect(dialog.getByText("链接格式不安全或无效，请编辑为 http 或 https 链接。", { exact: true })).toBeVisible();
+    await expect(dialog.getByRole("link")).toHaveCount(0);
+    expect(state.materialWrites).toBe(0);
+    expect(state.errors).toEqual([]);
+  });
+
+  test("new and edited materials save actual records without a reload, with safe links and deduplicated Chinese tags", async ({ page, context }) => {
+    const state = await isolate(page, context);
+    await page.goto("/learning");
+    await expect(card(page, state.materials[0].title)).toBeVisible();
+    const reads = state.readCounts.materials;
+    const stable = await watchTodoList(page, card(page, state.materials[0].title));
+    await page.getByRole("button", { name: "添加资料", exact: true }).tap();
+    const dialog = page.getByRole("dialog", { name: "添加资料", exact: true });
+    await dialog.getByLabel("标题").fill("新的学习笔记");
+    for (const unsafe of ["javascript:alert(1)", "data:text/html,hello", "file:///notes", "https://user:password@example.test"]) {
+      await dialog.getByLabel("链接（可选）").fill(unsafe);
+      await expect(dialog.getByLabel("链接（可选）")).toHaveAttribute("aria-invalid", "true");
+      await expect(dialog.getByRole("button", { name: "添加", exact: true })).toBeDisabled();
+    }
+    expect(state.materialWrites).toBe(0);
+    await dialog.getByLabel("链接（可选）").fill("https://example.test/notes");
+    await dialog.getByLabel("标签（逗号分隔）").fill("React，Hooks、React, 组件");
+    await dialog.getByLabel("备注").fill("记录下一步");
+    await dialog.getByRole("button", { name: "添加", exact: true }).tap();
+    await expect(dialog).not.toBeVisible();
+    const created = state.materials.find((material) => material.title === "新的学习笔记")!;
+    expect(created.tags).toEqual(["React", "Hooks", "组件"]);
+    await card(page, created.title).getByRole("button", { name: "编辑", exact: true }).tap();
+    const editing = page.getByRole("dialog", { name: "编辑资料", exact: true });
+    await editing.getByLabel("标题").fill("更新后的学习笔记");
+    await editing.getByRole("button", { name: "保存", exact: true }).tap();
+    await expect(editing).not.toBeVisible();
+    await expect(card(page, "更新后的学习笔记")).toBeVisible();
+    expect(created.id).toBe(state.materialRequests.at(-1)?.id);
+    expect(state.materialRequests.at(-1)?.method).toBe("PATCH");
+    expect(state.readCounts.materials).toBe(reads);
+    await stable();
+    expect(state.errors).toEqual([]);
+  });
+
+  test("delete requires confirmation, stays locked during saving, and preserves the record after a missing result", async ({ page, context }) => {
+    const state = await isolate(page, context);
+    const target = state.materials[1];
+    const wait = gate();
+    state.materialPlans.set(target.id, [{ wait: wait.wait, outcome: "missing" }]);
+    try {
+      await page.goto("/learning");
+      const stable = await watchTodoList(page, card(page, state.materials[0].title));
+      const reads = state.readCounts.materials;
+      await card(page, target.title).getByRole("button", { name: "删除", exact: true }).tap();
+      const dialog = page.getByRole("dialog", { name: "删除学习资料", exact: true });
+      await dialog.getByRole("button", { name: "保留资料", exact: true }).tap();
+      expect(state.materialWrites).toBe(0);
+      await card(page, target.title).getByRole("button", { name: "删除", exact: true }).tap();
+      await dialog.getByRole("button", { name: "确认删除", exact: true }).tap();
+      await expect(dialog.getByRole("button", { name: "正在删除…", exact: true })).toBeDisabled();
+      await page.keyboard.press("Escape");
+      await expect(dialog).toBeVisible();
+      wait.release();
+      await expect(dialog.getByRole("alert")).toBeVisible();
+      expect(state.materials.some((material) => material.id === target.id)).toBe(true);
+      await dialog.getByRole("button", { name: "确认删除", exact: true }).tap();
+      await expect(dialog).not.toBeVisible();
+      await expect(card(page, target.title)).toHaveCount(0);
+      await expect(page.getByLabel("搜索学习资料", { exact: true })).toBeFocused();
+      expect(state.materials.some((material) => material.id === target.id)).toBe(false);
+      expect(state.readCounts.materials).toBe(reads);
+      await stable();
+      expect(state.errors).toEqual([]);
+    } finally { wait.release(); }
+  });
+
+  test("initial load errors have a retry, and small dark layouts support long content and enlarged text", async ({ page, context }, info) => {
+    const state = await isolate(page, context);
+    state.readPlans.set("materials", [{ fail: true }]);
+    state.materials[0].title = "长标题" + "学习资料".repeat(12);
+    state.materials[0].tags = ["long-tag-".repeat(12)];
+    state.materials[0].category = "长分类".repeat(12);
+    await page.setViewportSize({ width: 320, height: 900 });
+    await page.emulateMedia({ colorScheme: "dark", reducedMotion: "reduce" });
+    await page.goto("/learning");
+    await expect(page.locator("#main-content").getByRole("alert")).toBeVisible();
+    await expect(page.getByRole("button", { name: "添加资料", exact: true })).toBeDisabled();
+    await page.getByRole("button", { name: "重试加载", exact: true }).tap();
+    await expect(card(page, state.materials[0].title)).toBeVisible();
+    await noOverflow(page);
+    await page.screenshot({ path: info.outputPath("learning-small-dark.png"), fullPage: true });
+    await page.evaluate(() => { document.documentElement.style.fontSize = "200%"; });
+    await noOverflow(page);
+    await card(page, state.materials[0].title).getByRole("button", { name: "查看笔记", exact: true }).tap();
+    await noOverflow(page);
+    await expect(page.getByRole("dialog").locator(".modal-panel")).toHaveCSS("transform", "none");
     expect(state.errors).toEqual([]);
   });
 });

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-export function TodoNotice({ message, undoLabel, onUndo, onDismiss }: {
+export function Notice({ message, undoLabel, onUndo, onDismiss }: {
   message: string;
   undoLabel?: string;
   onUndo?: () => void;

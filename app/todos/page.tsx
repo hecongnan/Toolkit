@@ -12,7 +12,7 @@ import { DateNav } from "@/components/todos/DateNav";
 import { TodoEditor } from "@/components/todos/TodoEditor";
 import { TodoForm } from "@/components/todos/TodoForm";
 import { TodoItem } from "@/components/todos/TodoItem";
-import { TodoNotice } from "@/components/todos/TodoNotice";
+import { Notice } from "@/components/ui/Notice";
 import { createClient } from "@/lib/supabase/client";
 import { toTodo, type TodoRow } from "@/lib/supabase/mappers";
 import { shiftDate, todayKey, todoErrorMessage } from "@/lib/todo-dates";
@@ -261,7 +261,7 @@ export default function TodosPage() {
       {error && <div role="alert" className="mb-4 space-y-2 rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-400">
         <p>{error}</p>{loadFailed && <Button size="sm" onClick={() => void loadTodos()}>重试加载</Button>}
       </div>}
-      {notice && <TodoNotice message={notice} onDismiss={dismissNotice}
+      {notice && <Notice message={notice} onDismiss={dismissNotice}
         undoLabel={undoTodo ? `撤销完成：${undoTodo.text}` : undefined}
         onUndo={undoTodo ? () => void toggle(undoTodo.id, true) : undefined} />}
       <div className="space-y-4 pb-16">

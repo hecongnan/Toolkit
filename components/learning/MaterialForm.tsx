@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Textarea } from "@/components/ui/Textarea";
 import { uid } from "@/lib/storage";
+import { safeMaterialUrl } from "@/lib/materials";
 import type { Material, MaterialStatus } from "@/lib/types";
 
 interface Props {
@@ -30,6 +31,8 @@ export function MaterialForm({ initial, onSubmit, onCancel, saving = false, erro
   const [priority, setPriority] = useState<1 | 2 | 3>(2);
   const [notes, setNotes] = useState("");
   const [draftId] = useState(uid);
+  const urlHintId = useId();
+  const invalidUrl = Boolean(url.trim() && !safeMaterialUrl(url));
 
   useEffect(() => {
     if (initial) {
@@ -53,16 +56,16 @@ export function MaterialForm({ initial, onSubmit, onCancel, saving = false, erro
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title.trim() || saving) return;
+    if (!title.trim() || saving || invalidUrl) return;
     const now = Date.now();
-    const tags = tagsText
-      .split(",")
+    const tags = Array.from(new Set(tagsText
+      .split(/[,，、\n]/)
       .map((t) => t.trim())
-      .filter(Boolean);
+      .filter(Boolean)));
     const next: Material = {
       id: initial?.id ?? draftId,
       title: title.trim(),
-      url: url.trim() || undefined,
+      url: safeMaterialUrl(url),
       category: category.trim() || "未分类",
       tags,
       status,
@@ -93,8 +96,11 @@ export function MaterialForm({ initial, onSubmit, onCancel, saving = false, erro
           value={url}
           onChange={(e) => setUrl(e.target.value)}
           placeholder="https://..."
+          aria-invalid={invalidUrl}
+          aria-describedby={urlHintId}
         />
       </Field>
+      <p id={urlHintId} className={"text-xs leading-relaxed " + (invalidUrl ? "status-error" : "text-[color:var(--text-muted)]")}>{invalidUrl ? "请输入不含用户名、密码的 http 或 https 链接；也可以留空只保存笔记。" : "支持 http / https 链接，不填写也可以保存笔记。"}</p>
 
       <div className="grid gap-4 sm:grid-cols-2">
         <Field label="分类">
@@ -108,7 +114,7 @@ export function MaterialForm({ initial, onSubmit, onCancel, saving = false, erro
           <Input
             value={tagsText}
             onChange={(e) => setTagsText(e.target.value)}
-            placeholder="React, Hooks, 进阶"
+            placeholder="React，Hooks，进阶（中英文逗号均可）"
           />
         </Field>
       </div>
@@ -169,7 +175,7 @@ export function MaterialForm({ initial, onSubmit, onCancel, saving = false, erro
         <Button type="button" variant="ghost" onClick={onCancel}>
           取消
         </Button>
-        <Button type="submit" variant="primary" disabled={!title.trim() || saving}>
+        <Button type="submit" variant="primary" disabled={!title.trim() || saving || invalidUrl}>
           {saving ? "正在保存..." : initial ? "保存" : "添加"}
         </Button>
       </div>
