@@ -45,7 +45,7 @@ async function isolate(page: Page, context: BrowserContext, authenticated = true
   ];
   const reports = [{ id: "66666666-6666-4666-8666-666666666666", user_id: userId, repo_url: "https://github.com/example/toolkit", owner: "example", repo: "toolkit", branch: "main", summary: "一个清晰、专注的个人工作区。", markdown: "# 项目概览\n\n一个清晰、专注的个人工作区。\n\n## 架构\n\n| 层级 | 说明 |\n| --- | --- |\n| 前端 | React + Next.js |\n| 数据 | Supabase |\n\n## 改进方向\n\n- 统一组件与交互\n- 关注无障碍与移动体验\n", created_at: timestamp }];
   const state = {
-    errors, failMaterial: false, materialWrites: 0, materialIds: [] as string[],
+    errors, authUser: user, failMaterial: false, materialWrites: 0, materialIds: [] as string[],
     materialPlans: new Map<string, TodoPatchPlan[]>(),
     materialRequests: [] as { id: string; method: string; payload: Partial<MaterialFixture> }[],
     todos, materials, reports, todoReads: 0, todoWrites: [] as { id: string; patch: Partial<TodoFixture> }[],
@@ -71,7 +71,7 @@ async function isolate(page: Page, context: BrowserContext, authenticated = true
       return respond(body, 200, headers);
     };
     if (request.method() === "OPTIONS") return respond(null);
-    if (url.pathname === "/auth/v1/user") return respond(authenticated ? user : { message: "No session" }, authenticated ? 200 : 401);
+    if (url.pathname === "/auth/v1/user") return respond(authenticated ? state.authUser : { message: "No session" }, authenticated ? 200 : 401);
     if (url.pathname.startsWith("/rest/v1/rpc/")) {
       if (url.pathname.endsWith("/todo_ensure_occurrences") && state.failRecurrence) return respond({ message: "模拟重复计划失败", code: "P0001" }, 400);
       if (url.pathname.endsWith("/todo_remove")) {
@@ -698,6 +698,7 @@ test.describe("learning workflow", () => {
     }
     expect(state.materialWrites).toBe(0);
     await dialog.getByLabel("链接（可选）").fill("https://example.test/notes");
+    await dialog.getByRole("button", { name: "更多选项", exact: false }).tap();
     await dialog.getByLabel("标签（逗号分隔）").fill("React，Hooks、React, 组件");
     await dialog.getByLabel("备注").fill("记录下一步");
     await dialog.getByRole("button", { name: "添加", exact: true }).tap();
@@ -1056,6 +1057,242 @@ test("reduced motion removes panel movement and touch controls have 44px targets
   await expect(page.getByRole("dialog").locator(".modal-panel")).toHaveCSS("transform", "none");
   await page.screenshot({ path: info.outputPath("mobile-edit.png") });
   await noOverflow(page);
+});
+
+test.describe("friendly learning library", () => {
+  test.use({ hasTouch: true });
+  const draftKey = `toolkit:material-draft:${userId}:new`;
+  const card = (page: Page, title: string) => page.getByRole("article", { name: title, exact: true });
+
+  test("quick capture keeps optional fields collapsed and offers touch-sized category suggestions", async ({ page, context }, info) => {
+    const state = await isolate(page, context);
+    await page.setViewportSize({ width: 375, height: 900 });
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.goto("/learning");
+    await page.getByRole("button", { name: "添加资料", exact: true }).tap();
+    const dialog = page.getByRole("dialog", { name: "添加资料", exact: true });
+    await expect(dialog.getByLabel("标题")).toBeFocused();
+    await expect(dialog.getByLabel("备注")).toBeVisible();
+    await expect(dialog.getByLabel("分类", { exact: true })).not.toBeVisible();
+    await dialog.getByLabel("标题").fill("快速收藏");
+    await dialog.locator(".modal-panel").evaluate((node) => node.scrollTo(0, 0));
+    await page.screenshot({ path: info.outputPath("learning-quick-capture.png") });
+    await dialog.getByRole("button", { name: /更多选项/ }).tap();
+    const suggestion = dialog.getByRole("group", { name: "已有分类建议" }).getByRole("button", { name: "前端", exact: true });
+    expect((await suggestion.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    await suggestion.tap();
+    await expect(dialog.getByLabel("分类", { exact: true })).toHaveValue("前端");
+    await dialog.getByLabel("分类", { exact: true }).fill("新分类");
+    await dialog.getByLabel("标签（逗号分隔）").fill("基础，基础、收藏");
+    await page.screenshot({ path: info.outputPath("learning-more-options.png") });
+    await dialog.getByRole("button", { name: "添加", exact: true }).tap();
+    await expect(dialog).not.toBeVisible();
+    const saved = state.materials.find((item) => item.title === "快速收藏")!;
+    expect(saved).toMatchObject({ category: "新分类", status: "todo", priority: 2, tags: ["基础", "收藏"] });
+    expect(await page.evaluate((key) => sessionStorage.getItem(key), draftKey)).toBeNull();
+    await noOverflow(page);
+    expect(state.errors).toEqual([]);
+  });
+
+  test("Escape and cancel protect input, retained drafts survive refresh and keep the retry id", async ({ page, context }) => {
+    const state = await isolate(page, context);
+    await page.goto("/learning");
+    await page.getByRole("button", { name: "添加资料", exact: true }).click();
+    let dialog = page.getByRole("dialog", { name: "添加资料", exact: true });
+    await dialog.getByLabel("标题").fill("尚未保存的课程");
+    await dialog.getByLabel("备注").fill("学到第三章，下次继续");
+    await expect.poll(() => page.evaluate((key) => JSON.parse(sessionStorage.getItem(key) ?? "null")?.title, draftKey)).toBe("尚未保存的课程");
+    const original = await page.evaluate((key) => JSON.parse(sessionStorage.getItem(key)!), draftKey);
+    await page.keyboard.press("Escape");
+    await expect(dialog.getByRole("alert", { name: "未保存的修改" })).toBeVisible();
+    await expect(dialog.getByRole("button", { name: "继续编辑", exact: true })).toBeFocused();
+    await dialog.getByRole("button", { name: "继续编辑", exact: true }).click();
+    await expect(dialog.getByLabel("备注")).toHaveValue("学到第三章，下次继续");
+    await dialog.getByRole("button", { name: "取消", exact: true }).click();
+    await dialog.getByRole("button", { name: "保留草稿并关闭", exact: true }).click();
+    await expect(dialog).not.toBeVisible();
+    expect(state.materialWrites).toBe(0);
+    page.once("dialog", (prompt) => prompt.accept());
+    await page.reload();
+    await page.getByRole("button", { name: "添加资料", exact: true }).click();
+    dialog = page.getByRole("dialog", { name: "添加资料", exact: true });
+    await expect(dialog.getByText("已恢复此标签页中的未保存草稿。", { exact: true })).toBeVisible();
+    await expect(dialog.getByLabel("标题")).toHaveValue("尚未保存的课程");
+    await expect(dialog.getByLabel("备注")).toHaveValue("学到第三章，下次继续");
+    await dialog.getByRole("button", { name: "添加", exact: true }).click();
+    await expect(dialog).not.toBeVisible();
+    expect(state.materialIds).toEqual([original.id]);
+    expect(await page.evaluate((key) => sessionStorage.getItem(key), draftKey)).toBeNull();
+    expect(state.errors).toEqual([]);
+  });
+
+  test("clearing and discarding drafts are explicit and never delete existing records", async ({ page, context }) => {
+    const state = await isolate(page, context);
+    await page.goto("/learning");
+    await card(page, state.materials[0].title).getByRole("button", { name: "编辑", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "编辑资料", exact: true });
+    await dialog.getByLabel("标题").fill("暂存编辑");
+    await dialog.getByRole("button", { name: "清除草稿", exact: true }).click();
+    await dialog.getByRole("button", { name: "保留内容", exact: true }).click();
+    await expect(dialog.getByLabel("标题")).toHaveValue("暂存编辑");
+    await dialog.getByRole("button", { name: "清除草稿", exact: true }).click();
+    await dialog.getByRole("button", { name: "确认清除草稿", exact: true }).click();
+    await expect(dialog.getByLabel("标题")).toHaveValue(state.materials[0].title);
+    await dialog.getByLabel("备注").fill("不想保留的修改");
+    await dialog.getByRole("button", { name: "关闭", exact: true }).click();
+    await dialog.getByRole("button", { name: "放弃修改并关闭", exact: true }).click();
+    await expect(dialog).not.toBeVisible();
+    await card(page, state.materials[0].title).getByRole("button", { name: "编辑", exact: true }).click();
+    await expect(dialog.getByLabel("备注")).toHaveValue(state.materials[0].notes!);
+    expect(state.materialWrites).toBe(0);
+    expect(state.materials).toHaveLength(2);
+    expect(state.errors).toEqual([]);
+  });
+
+  test("unavailable draft storage gives honest feedback and still permits saving", async ({ page, context }) => {
+    const state = await isolate(page, context);
+    await page.addInitScript(() => {
+      const original = Storage.prototype.setItem;
+      Storage.prototype.setItem = function (key, value) {
+        if (key.startsWith("toolkit:material-draft:")) throw new DOMException("Preview storage full", "QuotaExceededError");
+        return original.call(this, key, value);
+      };
+    });
+    await page.goto("/learning");
+    await page.getByRole("button", { name: "添加资料", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "添加资料", exact: true });
+    await dialog.getByLabel("标题").fill("存储不可用仍能保存");
+    await expect(dialog.getByText("无法保留草稿，请勿关闭页面。", { exact: true })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(dialog.getByRole("button", { name: "保留草稿并关闭", exact: true })).toHaveCount(0);
+    await dialog.getByRole("button", { name: "继续编辑", exact: true }).click();
+    await dialog.getByRole("button", { name: "添加", exact: true }).click();
+    await expect(dialog).not.toBeVisible();
+    expect(state.materialWrites).toBe(1);
+    expect(state.errors).toEqual([]);
+  });
+
+  test("saving locks dismissal and duplicate submissions without losing the draft", async ({ page, context }) => {
+    const state = await isolate(page, context);
+    const wait = gate();
+    try {
+      await page.goto("/learning");
+      await page.getByRole("button", { name: "添加资料", exact: true }).click();
+      const dialog = page.getByRole("dialog", { name: "添加资料", exact: true });
+      await dialog.getByLabel("标题").fill("等待同步");
+      await expect.poll(() => page.evaluate((key) => JSON.parse(sessionStorage.getItem(key) ?? "null")?.id, draftKey)).toBeTruthy();
+      const id = await page.evaluate((key) => JSON.parse(sessionStorage.getItem(key)!).id, draftKey);
+      state.materialPlans.set(id, [{ wait: wait.wait }]);
+      await dialog.getByRole("button", { name: "添加", exact: true }).click();
+      await expect.poll(() => state.materialWrites).toBe(1);
+      await page.keyboard.press("Escape");
+      await dialog.getByRole("button", { name: "关闭", exact: true }).click();
+      await expect(dialog.getByLabel("标题")).toBeDisabled();
+      await expect(dialog.getByRole("alert", { name: "未保存的修改" })).toHaveCount(0);
+      wait.release();
+      await expect(dialog).not.toBeVisible();
+      expect(state.materialWrites).toBe(1);
+    } finally { wait.release(); }
+    expect(state.errors).toEqual([]);
+  });
+
+  test("filters and scroll position return after navigating away, while explicit links override memory", async ({ page, context }) => {
+    const state = await isolate(page, context);
+    for (let i = 0; i < 28; i++) state.materials.push({ ...state.materials[0], id: `77777777-7777-4777-8777-${String(i).padStart(12, "0")}`, title: `React 学习资料 ${i}` });
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto("/learning");
+    await expect(card(page, state.materials[0].title)).toBeVisible();
+    await page.getByLabel("搜索学习资料", { exact: true }).fill("React");
+    await page.getByLabel("资料分类", { exact: true }).selectOption("前端");
+    await page.getByRole("group", { name: "学习状态筛选" }).getByRole("button", { name: "进行中", exact: true }).click();
+    await page.getByLabel("资料排序", { exact: true }).selectOption("priority");
+    await expect(page).toHaveURL(/sort=priority/);
+    await page.evaluate(() => window.scrollTo(0, 1100));
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(1100);
+    await expect.poll(() => page.evaluate((id) => JSON.parse(sessionStorage.getItem(`toolkit:learning-view:${id}`)!)?.scroll, userId)).toBe(1100);
+    await page.getByRole("link", { name: "每日待办", exact: true }).click();
+    await expect(page.getByRole("heading", { level: 1, name: "每日待办" })).toBeVisible();
+    await page.getByRole("link", { name: "学习资料", exact: true }).click();
+    await expect(page.getByLabel("搜索学习资料", { exact: true })).toHaveValue("React");
+    await expect(page.getByLabel("资料分类", { exact: true })).toHaveValue("前端");
+    await expect(page.getByLabel("资料排序", { exact: true })).toHaveValue("priority");
+    await expect(page.getByRole("group", { name: "学习状态筛选" }).getByRole("button", { name: "进行中", exact: true })).toHaveAttribute("aria-pressed", "true");
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(1100);
+    await page.goto("/learning?q=无障碍&status=todo");
+    await expect(page.getByLabel("搜索学习资料", { exact: true })).toHaveValue("无障碍");
+    await expect(page.getByLabel("资料分类", { exact: true })).toHaveValue("");
+    await expect(page.getByLabel("资料排序", { exact: true })).toHaveValue("newest");
+    await expect(card(page, state.materials[1].title)).toBeVisible();
+    expect(state.materialWrites).toBe(0);
+    expect(state.errors).toEqual([]);
+  });
+
+  test("foreign-account drafts and view memory are ignored, and malformed URL options are safe", async ({ page, context }) => {
+    const state = await isolate(page, context);
+    await page.addInitScript(() => {
+      sessionStorage.setItem("toolkit:material-draft:other-account:new", JSON.stringify({ title: "另一个账号的私人笔记" }));
+      sessionStorage.setItem("toolkit:learning-view:other-account", JSON.stringify({ view: { query: "私人搜索" }, scroll: 900 }));
+    });
+    await page.goto("/learning?status=unknown&sort=unknown&utm=test");
+    await expect(page.getByLabel("搜索学习资料", { exact: true })).toHaveValue("");
+    await expect(page.getByLabel("资料排序", { exact: true })).toHaveValue("newest");
+    await expect(page).toHaveURL(/\/learning\?utm=test$/);
+    await page.getByRole("button", { name: "添加资料", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "添加资料", exact: true });
+    await expect(dialog.getByLabel("标题")).toHaveValue("");
+    await expect(dialog.getByText(/已恢复/)).toHaveCount(0);
+    expect(state.materialWrites).toBe(0);
+    expect(state.errors).toEqual([]);
+  });
+
+  test("switching accounts cannot restore the previous account's private draft or filters", async ({ page, context }) => {
+    const state = await isolate(page, context);
+    await page.goto("/learning");
+    await page.getByLabel("搜索学习资料", { exact: true }).fill("原账号私密查找");
+    await page.getByRole("button", { name: "添加资料", exact: true }).click();
+    let dialog = page.getByRole("dialog", { name: "添加资料", exact: true });
+    await dialog.getByLabel("标题").fill("原账号私密笔记");
+    await dialog.getByRole("button", { name: "取消", exact: true }).click();
+    await dialog.getByRole("button", { name: "保留草稿并关闭", exact: true }).click();
+    await expect(dialog).not.toBeVisible();
+    state.authUser = { ...user, id: "88888888-8888-4888-8888-888888888888" };
+    await page.goto("/learning");
+    await expect(page.getByLabel("搜索学习资料", { exact: true })).toHaveValue("");
+    await page.getByRole("button", { name: "添加资料", exact: true }).click();
+    dialog = page.getByRole("dialog", { name: "添加资料", exact: true });
+    await expect(dialog.getByLabel("标题")).toHaveValue("");
+    await expect(dialog.getByText(/已恢复/)).toHaveCount(0);
+    expect(await page.evaluate((key) => JSON.parse(sessionStorage.getItem(key)!)?.title, draftKey)).toBe("原账号私密笔记");
+    expect(state.materialWrites).toBe(0);
+    expect(state.errors).toEqual([]);
+  });
+
+  test("small dark editor supports large text, keyboard groups, and backdrop dismissal protection", async ({ page, context }, info) => {
+    const state = await isolate(page, context);
+    await page.setViewportSize({ width: 320, height: 1000 });
+    await page.emulateMedia({ colorScheme: "dark", reducedMotion: "reduce" });
+    await page.goto("/learning");
+    await page.getByRole("button", { name: "添加资料", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "添加资料", exact: true });
+    await page.evaluate(() => { document.documentElement.style.fontSize = "200%"; });
+    await dialog.getByLabel("标题").fill("长标题与未保存笔记");
+    await dialog.getByLabel("备注").fill("学习笔记".repeat(25));
+    await dialog.getByRole("button", { name: /更多选项/ }).click();
+    await noOverflow(page);
+    expect(await dialog.locator(".modal-panel").evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
+    await expect(dialog.getByRole("group", { name: "学习状态", exact: true })).toBeVisible();
+    await dialog.locator(".modal-panel").evaluate((node) => node.scrollTo(0, 0));
+    await page.screenshot({ path: info.outputPath("learning-editor-large-dark.png") });
+    await dialog.evaluate((node) => node.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    await expect(dialog.getByRole("alert", { name: "未保存的修改" })).toBeVisible();
+    expect(await dialog.locator(".modal-panel").evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
+    await dialog.locator(".modal-panel").evaluate((node) => node.scrollTo(0, 0));
+    await page.screenshot({ path: info.outputPath("learning-unsaved-large-dark.png") });
+    await dialog.getByRole("button", { name: "继续编辑", exact: true }).click();
+    await expect(dialog.getByLabel("标题")).toHaveValue("长标题与未保存笔记");
+    expect(state.materialWrites).toBe(0);
+    expect(state.errors).toEqual([]);
+  });
 });
 
 test("material save failure stays inside the dialog and retains the draft", async ({ page, context }) => {

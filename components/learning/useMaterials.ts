@@ -12,6 +12,7 @@ export function useMaterials() {
   const [refreshing, setRefreshing] = useState(false);
   const [loadFailed, setLoadFailed] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [userId, setUserId] = useState<string | null>(null);
   const [pendingIds, setPendingIds] = useState<Set<string>>(() => new Set());
   const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
   const [failedStatuses, setFailedStatuses] = useState<Record<string, MaterialStatus>>({});
@@ -31,7 +32,9 @@ export function useMaterials() {
       const { data: { user }, error: authError } = await supabase.auth.getUser();
       if (authError) throw authError;
       if (!user) throw new Error("登录状态已失效，请重新登录。");
+      if (request !== requestRef.current) return;
       userRef.current = user.id;
+      setUserId(user.id);
       const { data, error } = await supabase.from("materials").select("*").eq("user_id", user.id).order("created_at", { ascending: false });
       if (error) throw error;
       if (request !== requestRef.current) return;
@@ -118,5 +121,5 @@ export function useMaterials() {
     } finally { finish(id); }
   };
 
-  return { materials, loading, refreshing, loadFailed, loadError, pendingIds, rowErrors, failedStatuses, load, updateStatus, save, remove };
+  return { userId, materials, loading, refreshing, loadFailed, loadError, pendingIds, rowErrors, failedStatuses, load, updateStatus, save, remove };
 }
