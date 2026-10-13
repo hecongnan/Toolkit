@@ -7,8 +7,8 @@ import { usePathname } from "next/navigation";
 import { useRouter } from "next/navigation";
 import { Sidebar } from "./Sidebar";
 import { Modal } from "@/components/ui/Modal";
-import { createClient } from "@/lib/supabase/client";
-import { isMissingSessionError } from "@/lib/auth-errors";
+import { useAuth } from "@/components/auth/AuthProvider";
+import { safeAuthDestination } from "@/lib/auth-errors";
 
 const AUTH_ROUTES = ["/login", "/register", "/forgot-password", "/update-password"];
 const PROTECTED_ROUTES = ["/", "/learning", "/todos", "/github", "/settings"];
@@ -17,8 +17,8 @@ type Theme = "dark" | "light";
 export function AppShell({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false);
   const [theme, setTheme] = useState<Theme>("light");
-  const [authStatus, setAuthStatus] = useState<"checking" | "ready" | "error">("checking");
-  const [authRetry, setAuthRetry] = useState(0);
+  const { status: authStatus, user, warning, retry } = useAuth();
+  const userId = user?.id;
   const pathname = usePathname();
   const router = useRouter();
 
@@ -31,35 +31,14 @@ export function AppShell({ children }: { children: ReactNode }) {
   // terminate the request before a response is produced. Keep route protection
   // in the browser while API routes continue to validate the Supabase cookie.
   useEffect(() => {
-    let active = true;
-    setAuthStatus("checking");
-
-    try {
-      const supabase = createClient();
-      supabase.auth.getUser().then(({ data: { user }, error }) => {
-        if (!active) return;
-        if (error && !isMissingSessionError(error)) throw error;
-        if (!user && isProtectedRoute) {
-          const next = pathname && pathname !== "/" ? `?next=${encodeURIComponent(pathname)}` : "";
-          router.replace(`/login${next}`);
-          return;
-        }
-        if (user && isAuthRoute && pathname !== "/update-password") {
-          router.replace("/");
-          return;
-        }
-        setAuthStatus("ready");
-      }).catch(() => {
-        if (active) setAuthStatus("error");
-      });
-    } catch {
-      setAuthStatus("error");
+    if (authStatus !== "ready" || window.location.pathname !== pathname) return;
+    if (!userId && isProtectedRoute) {
+      const next = pathname && pathname !== "/" ? `?next=${encodeURIComponent(pathname + window.location.search)}` : "";
+      router.replace(`/login${next}`);
+    } else if (userId && isAuthRoute && pathname !== "/update-password") {
+      router.replace(safeAuthDestination(new URLSearchParams(window.location.search).get("next")));
     }
-
-    return () => {
-      active = false;
-    };
-  }, [authRetry, isAuthRoute, isProtectedRoute, pathname, router]);
+  }, [authStatus, userId, isAuthRoute, isProtectedRoute, pathname, router]);
 
   useEffect(() => {
     const media = window.matchMedia("(prefers-color-scheme: dark)");
@@ -106,18 +85,18 @@ export function AppShell({ children }: { children: ReactNode }) {
     return <>{children}</>;
   }
 
-  if (isProtectedRoute && authStatus !== "ready") {
+  if (isProtectedRoute && (authStatus !== "ready" || !user)) {
     return (
       <div className="grid min-h-screen place-items-center bg-[var(--surface-page)] px-5 text-center text-sm text-[color:var(--text-muted)]">
-        {authStatus === "checking" ? (
-          <p>正在检查登录状态...</p>
+        {authStatus !== "error" ? (
+          <p>{authStatus === "checking" ? "正在检查登录状态..." : "正在前往登录页面..."}</p>
         ) : (
           <div className="space-y-3">
             <p className="font-medium text-[color:var(--text-primary)]">暂时无法确认登录状态</p>
             <p>请检查网络连接，然后重试。</p>
             <button
               type="button"
-              onClick={() => setAuthRetry((value) => value + 1)}
+              onClick={() => void retry()}
               className="mx-auto flex items-center gap-2 rounded-lg border border-[color:var(--border-default)] px-4 py-2 text-[color:var(--text-primary)] focus-ring"
             >
               <RotateCcw size={14} /> 重试
@@ -150,8 +129,11 @@ export function AppShell({ children }: { children: ReactNode }) {
             <button type="button" aria-label={theme === "dark" ? "切换到日间样式" : "切换到夜间样式"} onClick={toggleTheme} className="button icon-button focus-ring md:hidden">{theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}</button>
           </div>
         </header>
-        <main id="main-content" tabIndex={-1} className="outline-none">
+        <main key={user?.id} id="main-content" tabIndex={-1} className="outline-none">
         <div className="page-width px-4 pb-12 pt-7 sm:px-8 sm:pt-9 lg:px-10 lg:pt-11">
+          {warning && <div role="status" className="mb-4 flex flex-wrap items-center gap-2 rounded-xl bg-[var(--control-bg)] p-3 text-sm text-[color:var(--text-secondary)]">
+            <span>暂时无法更新登录状态，现有页面仍可使用。</span><button type="button" className="button button-secondary min-h-11 rounded-lg px-3 focus-ring" onClick={() => void retry()}>重试连接</button>
+          </div>}
           {children}
         </div>
         </main>

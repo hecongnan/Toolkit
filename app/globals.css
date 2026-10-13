@@ -185,6 +185,10 @@
   .app-dialog { margin: auto; width: min(calc(100% - 2rem), 32rem); max-width: none; max-height: min(90dvh, 56rem); padding: 0; border: 0; overflow: visible; background: transparent; color: var(--text-primary); }
   .app-dialog::backdrop { background: var(--scrim); backdrop-filter: blur(4px); }
   .modal-panel { max-height: min(90dvh, 56rem); overflow-y: auto; overscroll-behavior: contain; border: 1px solid var(--border-default); border-radius: 1.5rem; background: var(--surface); box-shadow: var(--shadow-overlay); opacity: 1; transform: translateY(0) scale(1); transition: opacity 180ms ease, transform 220ms var(--ease-out); }
+  @media (max-width: 639px) {
+    .task-dialog .modal-panel > div { padding-inline: 1rem; }
+    .task-dialog input[type="date"] { padding-inline: 0.5rem; }
+  }
   .app-dialog:not([open]) .modal-panel { opacity: 0; transform: translateY(8px) scale(0.98); }
   .app-dialog.drawer { margin: 0; width: min(20rem, 88vw); height: 100dvh; max-height: 100dvh; }
   .drawer .modal-panel { height: 100dvh; max-height: 100dvh; border-radius: 0 1.5rem 1.5rem 0; background: var(--surface-panel); transform: translateX(0); }

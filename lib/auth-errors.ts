@@ -20,3 +20,7 @@ export function isMissingSessionError(error: unknown): boolean {
     authError.code === "session_not_found" ||
     /auth session missing/i.test(authError.message ?? "");
 }
+
+export function safeAuthDestination(next: string | null): string {
+  return next?.startsWith("/") && !next.startsWith("//") && !next.includes("\\") ? next : "/";
+}

@@ -2,11 +2,14 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { useAuth } from "@/components/auth/AuthProvider";
 import { toMaterial, type MaterialRow } from "@/lib/supabase/mappers";
 import { materialError, MATERIAL_STATUS_LABEL } from "@/lib/materials";
 import type { Material, MaterialStatus } from "@/lib/types";
 
 export function useMaterials() {
+  const { user } = useAuth();
+  const verifiedUserId = user?.id;
   const [materials, setMaterials] = useState<Material[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -29,13 +32,11 @@ export function useMaterials() {
     setLoadError(null);
     try {
       const supabase = createClient();
-      const { data: { user }, error: authError } = await supabase.auth.getUser();
-      if (authError) throw authError;
-      if (!user) throw new Error("登录状态已失效，请重新登录。");
+      if (!verifiedUserId) throw new Error("登录状态已失效，请重新登录。");
       if (request !== requestRef.current) return;
-      userRef.current = user.id;
-      setUserId(user.id);
-      const { data, error } = await supabase.from("materials").select("*").eq("user_id", user.id).order("created_at", { ascending: false });
+      userRef.current = verifiedUserId;
+      setUserId(verifiedUserId);
+      const { data, error } = await supabase.from("materials").select("*").eq("user_id", verifiedUserId).order("created_at", { ascending: false });
       if (error) throw error;
       if (request !== requestRef.current) return;
       setMaterials(((data ?? []) as MaterialRow[]).map(toMaterial));
@@ -51,7 +52,7 @@ export function useMaterials() {
     } finally {
       if (request === requestRef.current) { setLoading(false); setRefreshing(false); }
     }
-  }, []);
+  }, [verifiedUserId]);
 
   useEffect(() => { void load(); return () => { requestRef.current += 1; }; }, [load]);
 

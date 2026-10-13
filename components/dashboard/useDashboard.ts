@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { useAuth } from "@/components/auth/AuthProvider";
 import { toAnalysisReport, toMaterial, toTodo, type AnalysisReportRow, type MaterialRow, type TodoRow } from "@/lib/supabase/mappers";
 import { todayKey, todoErrorMessage } from "@/lib/todo-dates";
 import type { AnalysisReport, Material, Todo } from "@/lib/types";
@@ -16,6 +17,8 @@ export interface SectionState {
 const sections: DashboardSection[] = ["todos", "materials", "reports"];
 
 export function useDashboard() {
+  const { user } = useAuth();
+  const verifiedUserId = user?.id;
   const today = todayKey();
   const [todos, setTodos] = useState<Todo[]>([]);
   const [materials, setMaterials] = useState<Material[]>([]);
@@ -72,11 +75,9 @@ export function useDashboard() {
     setAccountError(null);
     const loadAccount = async () => {
       try {
-        const { data: { user }, error } = await createClient().auth.getUser();
-        if (error) throw error;
         if (request !== requests.current.account) return;
-        setUserId(user?.id ?? null);
-        if (!user) setAccountError("登录状态已失效，请重新登录。");
+        setUserId(verifiedUserId ?? null);
+        if (!verifiedUserId) setAccountError("登录状态已失效，请重新登录。");
       } catch {
         if (request === requests.current.account) {
           setUserId(null);
@@ -86,7 +87,7 @@ export function useDashboard() {
     };
     // Each section publishes its own result without waiting for the others.
     await Promise.all([loadAccount(), ...sections.map(reloadSection)]);
-  }, [reloadSection]);
+  }, [reloadSection, verifiedUserId]);
 
   useEffect(() => {
     const currentRequests = requests.current;

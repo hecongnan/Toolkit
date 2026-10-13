@@ -26,13 +26,18 @@ function gate() {
   return { wait, release };
 }
 
+function previewSession(account = user) {
+  const exp = Math.floor(Date.now() / 1000) + 3600;
+  const encode = (value: unknown) => Buffer.from(JSON.stringify(value)).toString("base64url");
+  return { access_token: `${encode({ alg: "HS256", typ: "JWT" })}.${encode({ sub: account.id, exp, aud: "authenticated", role: "authenticated" })}.preview`, refresh_token: "preview-only", token_type: "bearer", expires_in: 3600, expires_at: exp, user: account };
+}
+
 async function isolate(page: Page, context: BrowserContext, authenticated = true) {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   if (authenticated) {
-    const exp = Math.floor(Date.now() / 1000) + 3600;
     const encode = (value: unknown) => Buffer.from(JSON.stringify(value)).toString("base64url");
-    const session = { access_token: `${encode({ alg: "HS256", typ: "JWT" })}.${encode({ sub: userId, exp, aud: "authenticated", role: "authenticated" })}.preview`, refresh_token: "preview-only", token_type: "bearer", expires_in: 3600, expires_at: exp, user };
+    const session = previewSession();
     await context.addCookies([{ name: "sb-frontend-preview-auth-token", value: "base64-" + encode(session), domain: "127.0.0.1", path: "/" }]);
   }
   const todos: TodoFixture[] = [
@@ -45,7 +50,9 @@ async function isolate(page: Page, context: BrowserContext, authenticated = true
   ];
   const reports = [{ id: "66666666-6666-4666-8666-666666666666", user_id: userId, repo_url: "https://github.com/example/toolkit", owner: "example", repo: "toolkit", branch: "main", summary: "一个清晰、专注的个人工作区。", markdown: "# 项目概览\n\n一个清晰、专注的个人工作区。\n\n## 架构\n\n| 层级 | 说明 |\n| --- | --- |\n| 前端 | React + Next.js |\n| 数据 | Supabase |\n\n## 改进方向\n\n- 统一组件与交互\n- 关注无障碍与移动体验\n", created_at: timestamp }];
   const state = {
-    errors, authUser: user, failMaterial: false, materialWrites: 0, materialIds: [] as string[],
+    errors, authUser: user, authenticated, authReads: 0, authPlans: [] as { wait?: Promise<void>; status?: number }[],
+    todoCreates: [] as Record<string, unknown>[], createPlans: [] as TodoPatchPlan[],
+    failMaterial: false, materialWrites: 0, materialIds: [] as string[],
     materialPlans: new Map<string, TodoPatchPlan[]>(),
     materialRequests: [] as { id: string; method: string; payload: Partial<MaterialFixture> }[],
     todos, materials, reports, todoReads: 0, todoWrites: [] as { id: string; patch: Partial<TodoFixture> }[],
@@ -71,8 +78,29 @@ async function isolate(page: Page, context: BrowserContext, authenticated = true
       return respond(body, 200, headers);
     };
     if (request.method() === "OPTIONS") return respond(null);
-    if (url.pathname === "/auth/v1/user") return respond(authenticated ? state.authUser : { message: "No session" }, authenticated ? 200 : 401);
+    if (url.pathname === "/auth/v1/user") {
+      state.authReads++;
+      const plan = state.authPlans.shift();
+      const body = { ...state.authUser };
+      if (plan?.wait) await plan.wait;
+      if (plan?.status) return respond({ message: "模拟校验失败", code: plan.status === 401 ? "bad_jwt" : "temporary_error" }, plan.status);
+      return respond(state.authenticated ? body : { message: "No session" }, state.authenticated ? 200 : 401);
+    }
+    if (url.pathname === "/auth/v1/logout") { state.authenticated = false; return respond({}); }
+    if (url.pathname === "/auth/v1/token") { state.authenticated = true; return respond(previewSession(state.authUser)); }
     if (url.pathname.startsWith("/rest/v1/rpc/")) {
+      if (url.pathname.endsWith("/todo_create")) {
+        const payload = request.postDataJSON();
+        state.todoCreates.push(payload);
+        const plan = state.createPlans.shift();
+        if (plan?.wait) await plan.wait;
+        if (plan?.outcome === "error") return respond({ message: "模拟添加失败，请重试", code: "P0001" }, 400);
+        if (!todos.some((row) => row.id === payload.p_id)) todos.push(todoFixture(payload.p_id, payload.p_text, {
+          priority: payload.p_priority, due_date: payload.p_due_date, scheduled_time: payload.p_time,
+          repeat_rule: payload.p_repeat, series_id: payload.p_repeat === "none" ? null : payload.p_id, position: payload.p_position,
+        }));
+        return respond(payload.p_id);
+      }
       if (url.pathname.endsWith("/todo_ensure_occurrences") && state.failRecurrence) return respond({ message: "模拟重复计划失败", code: "P0001" }, 400);
       if (url.pathname.endsWith("/todo_remove")) {
         const { p_id, p_scope } = request.postDataJSON();
@@ -193,7 +221,7 @@ test.describe("touch task completion", () => {
       await expect(todoRow(page, "每天读书").getByRole("button", { name: "标记未完成", exact: true })).toBeDisabled();
       await expect(todoRow(page, second.text).getByRole("button", { name: "标记完成", exact: true })).toBeEnabled();
       await expect(page.getByLabel("选择任务日期")).toBeDisabled();
-      await expect(page.getByLabel("任务内容", { exact: true })).toBeDisabled();
+      await expect(page.getByRole("button", { name: "添加任务", exact: true })).toBeDisabled();
       await expect(todoRow(page, "下一件待办").getByRole("button", { name: "更多操作：下一件待办", exact: true })).toBeDisabled();
       await stable();
 
@@ -450,7 +478,7 @@ test.describe("task undo and mobile menu", () => {
     await undo.focus();
     await page.clock.fastForward(15_000);
     await expect(undo).toBeFocused();
-    await page.getByLabel("任务内容", { exact: true }).focus();
+    await page.getByRole("button", { name: "添加任务", exact: true }).focus();
     await page.clock.fastForward(8_100);
     await expect(undo).toHaveCount(0);
     await page.getByText("已完成 · 2", { exact: true }).tap();
@@ -862,7 +890,7 @@ test.describe("welcome workspace", () => {
     await page.screenshot({ path: info.outputPath("welcome-first-task.png"), fullPage: true });
     await page.getByRole("link", { name: "创建第一条待办", exact: true }).tap();
     await expect(page.getByRole("heading", { name: "每日待办", exact: true })).toBeVisible();
-    await expect(page.getByLabel("任务内容", { exact: true })).toBeEnabled();
+    await expect(page.getByRole("button", { name: "添加任务", exact: true })).toBeEnabled();
     expect(state.errors).toEqual([]);
   });
 
@@ -1057,6 +1085,284 @@ test("reduced motion removes panel movement and touch controls have 44px targets
   await expect(page.getByRole("dialog").locator(".modal-panel")).toHaveCSS("transform", "none");
   await page.screenshot({ path: info.outputPath("mobile-edit.png") });
   await noOverflow(page);
+});
+
+test.describe("shared workspace authentication", () => {
+  test("workspace navigation reuses one verified user without showing another blocking auth screen", async ({ page, context }) => {
+    const state = await isolate(page, context);
+    await page.goto("/todos");
+    await expect(todoRow(page, "每天读书")).toBeVisible();
+    expect(state.authReads).toBe(1);
+    await page.evaluate(() => {
+      document.body.dataset.authWaitFlash = "false";
+      new MutationObserver((records) => {
+        for (const record of records) for (const node of Array.from(record.addedNodes)) {
+          if (node.textContent?.includes("正在检查登录状态")) document.body.dataset.authWaitFlash = "true";
+        }
+      }).observe(document.body, { childList: true, subtree: true });
+    });
+    for (const [label, title] of [["学习资料", "学习资料"], ["概览", "今天，专注重要的事。"], ["AI 设置", "AI 设置"], ["项目分析", "项目分析"], ["每日待办", "每日待办"]]) {
+      await page.getByRole("navigation", { name: "主要导航", exact: true }).getByRole("link", { name: label, exact: true }).click();
+      await expect(page.getByRole("heading", { level: 1, name: title, exact: true })).toBeVisible();
+    }
+    expect(state.authReads).toBe(1);
+    await expect(page.locator("body")).toHaveAttribute("data-auth-wait-flash", "false");
+    expect(state.errors).toEqual([]);
+  });
+
+  test("initial auth failure hides protected data and can retry without a reload", async ({ page, context }) => {
+    const state = await isolate(page, context);
+    state.authPlans.push({ status: 400 });
+    await page.goto("/todos");
+    await expect(page.getByText("暂时无法确认登录状态", { exact: true })).toBeVisible();
+    await expect(page.locator("#main-content")).toHaveCount(0);
+    expect(state.todoReads).toBe(0);
+    await page.getByRole("button", { name: "重试", exact: true }).click();
+    await expect(todoRow(page, "每天读书")).toBeVisible();
+    expect(state.authReads).toBe(2);
+    expect(state.errors).toEqual([]);
+  });
+
+  test("background validation is deduplicated, preserves content on network failure and handles revocation", async ({ page, context }) => {
+    const state = await isolate(page, context);
+    await page.clock.install();
+    await page.goto("/todos");
+    await expect(todoRow(page, "每天读书")).toBeVisible();
+    const survivor = await todoRow(page, "每天读书").elementHandle();
+    const slow = gate();
+    state.authPlans.push({ wait: slow.wait, status: 400 });
+    try {
+      await page.clock.fastForward(61_000);
+      await page.evaluate(() => { window.dispatchEvent(new Event("focus")); document.dispatchEvent(new Event("visibilitychange")); });
+      await expect.poll(() => state.authReads).toBe(2);
+      await expect(todoRow(page, "每天读书")).toBeVisible();
+      await expect(page.getByText("正在检查登录状态...", { exact: true })).toHaveCount(0);
+      slow.release();
+      await expect(page.getByText("暂时无法更新登录状态，现有页面仍可使用。", { exact: true })).toBeVisible();
+      expect(await survivor!.evaluate((node) => node.isConnected)).toBe(true);
+      await page.getByRole("button", { name: "重试连接", exact: true }).click();
+      await expect(page.getByRole("button", { name: "重试连接", exact: true })).toHaveCount(0);
+      expect(state.authReads).toBe(3);
+      state.authPlans.push({ status: 401 });
+      await page.clock.fastForward(61_000);
+      await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+      await expect(page).toHaveURL(/\/login\?next=%2Ftodos/);
+      await expect(page.locator("#main-content")).toHaveCount(0);
+    } finally { slow.release(); }
+    expect(state.errors).toEqual([]);
+  });
+
+  test("sign-out updates the shared state immediately and stale validation cannot restore private content", async ({ page, context }) => {
+    const state = await isolate(page, context);
+    await page.clock.install();
+    await page.goto("/todos");
+    await expect(todoRow(page, "每天读书")).toBeVisible();
+    const slow = gate();
+    state.authPlans.push({ wait: slow.wait });
+    try {
+      await page.clock.fastForward(61_000);
+      await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+      await expect.poll(() => state.authReads).toBe(2);
+      await page.evaluate(() => {
+        const channel = new BroadcastChannel("sb-frontend-preview-auth-token");
+        channel.postMessage({ event: "SIGNED_OUT", session: null });
+        channel.close();
+      });
+      await expect(page).toHaveURL(/\/login/);
+      await expect(page.locator("#main-content")).toHaveCount(0);
+      slow.release();
+      await expect(page.getByRole("heading", { name: "欢迎回到 Toolkit", exact: true })).toBeVisible();
+      await expect(page.locator("#main-content")).toHaveCount(0);
+    } finally { slow.release(); }
+    expect(state.errors).toEqual([]);
+  });
+
+  test("new sign-in restores a protected destination and ordinary logout leaves no protected page", async ({ page, context }) => {
+    const state = await isolate(page, context, false);
+    await page.goto("/todos");
+    await expect(page).toHaveURL(/\/login\?next=%2Ftodos/);
+    await page.getByLabel("邮箱", { exact: true }).fill("preview@example.test");
+    await page.getByLabel("密码", { exact: true }).fill("preview-password");
+    await page.getByRole("button", { name: "登录", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "每日待办", exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "退出登录", exact: true }).click();
+    await expect(page).toHaveURL(/\/login/);
+    await expect(page.locator("#main-content")).toHaveCount(0);
+    expect(state.errors).toEqual([]);
+  });
+
+  test("an account change hides the old page during verification and does not reuse its task draft", async ({ page, context }) => {
+    const state = await isolate(page, context);
+    const slow = gate();
+    await page.goto("/todos");
+    await page.getByRole("button", { name: "添加任务", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "添加任务", exact: true });
+    await dialog.getByLabel("任务内容", { exact: true }).fill("原账号未提交内容");
+    await dialog.getByRole("button", { name: "取消", exact: true }).click();
+    state.authUser = { ...user, id: "88888888-8888-4888-8888-888888888888", email: "second@example.test" };
+    state.authPlans.push({ wait: slow.wait });
+    try {
+      await page.evaluate((session) => {
+        const channel = new BroadcastChannel("sb-frontend-preview-auth-token");
+        channel.postMessage({ event: "SIGNED_IN", session });
+        channel.close();
+      }, previewSession(state.authUser));
+      await expect(page.getByText("正在检查登录状态...", { exact: true })).toBeVisible();
+      await expect(page.locator("#main-content")).toHaveCount(0);
+      slow.release();
+      await expect(page.getByText("second@example.test", { exact: true })).toBeVisible();
+      await page.getByRole("button", { name: "添加任务", exact: true }).click();
+      await expect(dialog.getByLabel("任务内容", { exact: true })).toHaveValue("");
+      expect(state.todoCreates).toHaveLength(0);
+    } finally { slow.release(); }
+    expect(state.errors).toEqual([]);
+  });
+
+  for (const next of ["https://example.test", "//example.test", "/\\example.test"]) {
+    test("authenticated login rejects external or ambiguous return target " + next, async ({ page, context }) => {
+      const state = await isolate(page, context);
+      await page.goto("/login?next=" + encodeURIComponent(next));
+      await expect(page).toHaveURL("/");
+      await expect(page.getByRole("heading", { name: "今天，专注重要的事。", exact: true })).toBeVisible();
+      expect(state.errors).toEqual([]);
+    });
+  }
+});
+
+test.describe("task creation dialog", () => {
+  test.use({ hasTouch: true });
+
+  test("mobile dialog has all scheduling options, uses the selected date, and saves actual values", async ({ page, context }, info) => {
+    const state = await isolate(page, context);
+    await page.setViewportSize({ width: 375, height: 950 });
+    await page.goto("/todos");
+    await expect(todoRow(page, "每天读书")).toBeVisible();
+    await expect(page.getByLabel("任务内容", { exact: true })).toHaveCount(0);
+    const selected = "2026-10-19";
+    await page.getByLabel("选择任务日期").fill(selected);
+    const trigger = page.getByRole("button", { name: "添加任务", exact: true });
+    await expect(trigger).toBeEnabled();
+    await trigger.tap();
+    const dialog = page.getByRole("dialog", { name: "添加任务", exact: true });
+    await expect(dialog.getByLabel("任务内容", { exact: true })).toBeFocused();
+    await expect(dialog.getByLabel("任务日期", { exact: true })).toHaveValue(selected);
+    await expect(dialog.getByLabel("重复规则", { exact: true })).toHaveValue("none");
+    await dialog.getByLabel("任务内容", { exact: true }).fill("练习新的知识");
+    await dialog.getByLabel("计划时间", { exact: true }).fill("09:30");
+    await dialog.getByRole("group", { name: "任务优先级", exact: true }).getByRole("button", { name: "高 · P1", exact: true }).tap();
+    await dialog.getByLabel("重复规则", { exact: true }).selectOption("weekly");
+    await expect(dialog.getByText(/每周一出现/)).toBeVisible();
+    await expect(dialog.getByText(/不会发送提醒/)).toBeVisible();
+    await expect(dialog.locator(".modal-panel")).toHaveCSS("opacity", "1");
+    await expect(dialog.getByRole("button", { name: "高 · P1", exact: true })).toHaveAttribute("aria-pressed", "true");
+    await dialog.evaluate(async (node) => { await Promise.all(node.getAnimations({ subtree: true }).map((animation) => animation.finished.catch(() => {}))); });
+    await page.screenshot({ path: info.outputPath("task-create-mobile.png") });
+    await dialog.getByRole("button", { name: "添加", exact: true }).tap();
+    await expect(dialog).not.toBeVisible();
+    expect(state.todoCreates[0]).toMatchObject({ p_text: "练习新的知识", p_due_date: selected, p_time: "09:30", p_repeat: "weekly", p_priority: 1 });
+    await expect(todoRow(page, "练习新的知识")).toBeVisible();
+    await expect(trigger).toBeFocused();
+    await trigger.tap();
+    await expect(dialog.getByLabel("任务内容", { exact: true })).toHaveValue("");
+    await expect(dialog.getByLabel("计划时间", { exact: true })).toHaveValue("");
+    await expect(dialog.getByLabel("重复规则", { exact: true })).toHaveValue("none");
+    expect(state.errors).toEqual([]);
+  });
+
+  test("cancellation retains the page draft and time can be cleared without adding a task", async ({ page, context }) => {
+    const state = await isolate(page, context);
+    await page.goto("/todos");
+    const trigger = page.getByRole("button", { name: "添加任务", exact: true });
+    await trigger.tap();
+    const dialog = page.getByRole("dialog", { name: "添加任务", exact: true });
+    await dialog.getByLabel("任务内容", { exact: true }).fill("稍后继续填写");
+    await dialog.getByLabel("计划时间", { exact: true }).fill("10:20");
+    await page.keyboard.press("Escape");
+    await expect(dialog).not.toBeVisible();
+    await trigger.tap();
+    await expect(dialog.getByLabel("任务内容", { exact: true })).toHaveValue("稍后继续填写");
+    await expect(dialog.getByLabel("计划时间", { exact: true })).toHaveValue("10:20");
+    await dialog.getByRole("button", { name: "清除计划时间", exact: true }).tap();
+    await expect(dialog.getByLabel("计划时间", { exact: true })).toHaveValue("");
+    await dialog.getByRole("button", { name: "添加", exact: true }).tap();
+    await expect(dialog).not.toBeVisible();
+    expect(state.todoCreates).toHaveLength(1);
+    expect(state.todoCreates[0]).toMatchObject({ p_time: null, p_repeat: "none" });
+    expect(state.errors).toEqual([]);
+  });
+
+  test("failed and slow creation retain input and retry id, and lock dismissal and duplicate submits", async ({ page, context }) => {
+    const state = await isolate(page, context);
+    const slow = gate();
+    state.createPlans.push({ outcome: "error" }, { wait: slow.wait });
+    try {
+      await page.goto("/todos");
+      await expect(todoRow(page, "每天读书")).toBeVisible();
+      const stable = await watchTodoList(page, todoRow(page, "每天读书"));
+      await page.getByRole("button", { name: "添加任务", exact: true }).tap();
+      const dialog = page.getByRole("dialog", { name: "添加任务", exact: true });
+      await dialog.getByLabel("任务内容", { exact: true }).fill("失败后仍保留");
+      await dialog.getByLabel("计划时间", { exact: true }).fill("18:00");
+      await dialog.getByRole("button", { name: "添加", exact: true }).tap();
+      await expect(dialog.getByRole("alert")).toContainText("模拟添加失败");
+      await expect(dialog.getByLabel("任务内容", { exact: true })).toHaveValue("失败后仍保留");
+      await expect(dialog.getByLabel("计划时间", { exact: true })).toHaveValue("18:00");
+      await dialog.getByRole("button", { name: "添加", exact: true }).tap();
+      await expect.poll(() => state.todoCreates.length).toBe(2);
+      await expect(dialog.getByRole("button", { name: "正在添加…", exact: true })).toBeDisabled();
+      await page.keyboard.press("Escape");
+      await dialog.getByRole("button", { name: "关闭", exact: true }).tap();
+      await expect(dialog).toBeVisible();
+      slow.release();
+      await expect(dialog).not.toBeVisible();
+      expect(state.todoCreates[0].p_id).toBe(state.todoCreates[1].p_id);
+      expect(state.todos.filter((row) => row.text === "失败后仍保留")).toHaveLength(1);
+      await stable();
+    } finally { slow.release(); }
+    expect(state.errors).toEqual([]);
+  });
+
+  test("changing task date describes weekday rollover and confirms where the created task belongs", async ({ page, context }) => {
+    const state = await isolate(page, context);
+    await page.goto("/todos");
+    await page.getByRole("button", { name: "添加任务", exact: true }).tap();
+    const dialog = page.getByRole("dialog", { name: "添加任务", exact: true });
+    await dialog.getByLabel("任务内容", { exact: true }).fill("工作日练习");
+    await dialog.getByLabel("任务日期", { exact: true }).fill("2026-10-17");
+    await dialog.getByLabel("重复规则", { exact: true }).selectOption("weekdays");
+    await expect(dialog.getByText(/从 2026-10-19 开始/)).toBeVisible();
+    await dialog.getByRole("button", { name: "添加", exact: true }).tap();
+    await expect(dialog).not.toBeVisible();
+    await expect(page.getByText("任务已添加，安排在 2026-10-19。可切换日期查看。", { exact: true })).toBeVisible();
+    expect(state.todoCreates[0]).toMatchObject({ p_due_date: "2026-10-17", p_repeat: "weekdays" });
+    expect(state.errors).toEqual([]);
+  });
+
+  test("small dark dialog stays inside the panel at 200 percent text size and supports keyboard focus", async ({ page, context }, info) => {
+    const state = await isolate(page, context);
+    await page.setViewportSize({ width: 320, height: 1000 });
+    await page.emulateMedia({ colorScheme: "dark", reducedMotion: "reduce" });
+    await page.goto("/todos");
+    const trigger = page.getByRole("button", { name: "添加任务", exact: true });
+    await expect(trigger).toBeEnabled();
+    await trigger.focus();
+    await page.keyboard.press("Enter");
+    const dialog = page.getByRole("dialog", { name: "添加任务", exact: true });
+    await expect(dialog.getByLabel("任务内容", { exact: true })).toBeFocused();
+    await page.evaluate(() => { document.documentElement.style.fontSize = "200%"; });
+    await noOverflow(page);
+    expect(await dialog.locator(".modal-panel").evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
+    for (let i = 0; i < 12; i++) {
+      await page.keyboard.press(i % 2 ? "Tab" : "Shift+Tab");
+      expect(await dialog.evaluate((node) => node.contains(document.activeElement))).toBe(true);
+    }
+    await dialog.locator(".modal-panel").evaluate((node) => node.scrollTo(0, 0));
+    await page.screenshot({ path: info.outputPath("task-create-large-dark.png") });
+    await page.keyboard.press("Escape");
+    await expect(dialog).not.toBeVisible();
+    await expect(trigger).toBeFocused();
+    expect(state.errors).toEqual([]);
+  });
 });
 
 test.describe("friendly learning library", () => {

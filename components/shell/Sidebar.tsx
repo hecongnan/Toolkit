@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { useAuth } from "@/components/auth/AuthProvider";
 import {
   LayoutDashboard,
   BookOpen,
@@ -34,21 +35,9 @@ interface SidebarProps {
 export function Sidebar({ onNavigate, theme = "dark", onToggleTheme }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
-  const [email, setEmail] = useState<string | null>(null);
+  const { user } = useAuth();
+  const email = user?.email;
   const [signOutError, setSignOutError] = useState<string | null>(null);
-
-  useEffect(() => {
-    try {
-      const supabase = createClient();
-      supabase.auth.getUser().then(({ data }) => {
-        setEmail(data.user?.email ?? null);
-      }).catch(() => {
-        setEmail(null);
-      });
-    } catch {
-      setEmail(null);
-    }
-  }, []);
 
   const signOut = async () => {
     setSignOutError(null);

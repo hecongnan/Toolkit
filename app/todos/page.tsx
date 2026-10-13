@@ -15,7 +15,7 @@ import { TodoItem } from "@/components/todos/TodoItem";
 import { Notice } from "@/components/ui/Notice";
 import { createClient } from "@/lib/supabase/client";
 import { toTodo, type TodoRow } from "@/lib/supabase/mappers";
-import { shiftDate, todayKey, todoErrorMessage } from "@/lib/todo-dates";
+import { firstRepeatDate, shiftDate, todayKey, todoErrorMessage } from "@/lib/todo-dates";
 import type { Todo, TodoScope } from "@/lib/types";
 
 export default function TodosPage() {
@@ -26,6 +26,8 @@ export default function TodosPage() {
   const [overdueLimit, setOverdueLimit] = useState(50);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [adding, setAdding] = useState(false);
+  const [addError, setAddError] = useState<string | null>(null);
   const [pendingIds, setPendingIds] = useState<Set<string>>(() => new Set());
   const [error, setError] = useState<string | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
@@ -91,7 +93,7 @@ export default function TodosPage() {
 
   useEffect(() => {
     const refresh = () => {
-      if (loading || busyRef.current || pendingRef.current.size || editing || deleting) return;
+      if (loading || busyRef.current || pendingRef.current.size || adding || editing || deleting) return;
       const current = todayKey();
       if (current !== today) {
         setToday(current);
@@ -103,7 +105,7 @@ export default function TodosPage() {
     const timer = window.setInterval(() => { if (todayKey() !== today) refresh(); }, 60_000);
     window.addEventListener("focus", refresh);
     return () => { window.clearInterval(timer); window.removeEventListener("focus", refresh); };
-  }, [today, loadTodos, loading, loadFailed, editing, deleting]);
+  }, [today, loadTodos, loading, loadFailed, adding, editing, deleting]);
 
   const dayTodos = useMemo(() => todos.filter((todo) => todo.dueDate === date), [todos, date]);
   const undone = dayTodos.filter((todo) => !todo.done && !todo.skipped).sort((a, b) => a.position - b.position || a.createdAt - b.createdAt);
@@ -115,12 +117,13 @@ export default function TodosPage() {
   const pct = total ? Math.round(done.length / total * 100) : 0;
   const disabled = busy || loading || pendingIds.size > 0;
 
-  const runMutation = async (action: () => Promise<void>, success: string): Promise<boolean> => {
+  const runMutation = async (action: () => Promise<void>, success: string, formError = false): Promise<boolean> => {
     if (busyRef.current || pendingRef.current.size) return false;
     latestActionRef.current += 1;
     busyRef.current = true;
     setBusy(true);
     setError(null);
+    if (formError) setAddError(null);
     dismissNotice();
     try {
       await action();
@@ -130,7 +133,8 @@ export default function TodosPage() {
     } catch (err: unknown) {
       const message = todoErrorMessage(err, "操作未完成，请重试。");
       await loadTodos(false, true);
-      setError(message);
+      if (formError) setAddError(message);
+      else setError(message);
       return false;
     } finally {
       busyRef.current = false;
@@ -139,13 +143,17 @@ export default function TodosPage() {
   };
 
   const add = async (todo: Todo) => runMutation(async () => {
-    const position = undone.length ? Math.max(...undone.map((item) => item.position)) + 1024 : 1024;
+    // Another date's tasks are not loaded here; do not reuse today's ordering.
+    const position = firstRepeatDate(todo.dueDate, todo.repeat) !== date ? Date.now()
+      : undone.length ? Math.max(...undone.map((item) => item.position)) + 1024 : 1024;
     const { error: createError } = await createClient().rpc("todo_create", {
       p_id: todo.id, p_text: todo.text, p_priority: todo.priority, p_due_date: todo.dueDate,
       p_time: todo.scheduledTime ?? null, p_repeat: todo.repeat, p_position: position,
     });
     if (createError) throw createError;
-  }, todo.repeat === "weekdays" ? "任务已添加；周一至周五出现，周末自动顺延。" : "任务已添加。");
+  }, firstRepeatDate(todo.dueDate, todo.repeat) !== date
+    ? `任务已添加，安排在 ${firstRepeatDate(todo.dueDate, todo.repeat)}。可切换日期查看。`
+    : todo.repeat === "weekdays" ? "任务已添加；周一至周五出现，周末自动顺延。" : "任务已添加。", true);
 
   const toggle = async (id: string, undo = false) => {
     const todo = todos.find((item) => item.id === id);
@@ -257,7 +265,8 @@ export default function TodosPage() {
 
   return (
     <>
-      <PageHeader eyebrow="一天，一步" title="每日待办" description="给重要的事留出时间。今天没完成的，也可以从容安排。" />
+      <PageHeader eyebrow="一天，一步" title="每日待办" description="给重要的事留出时间。今天没完成的，也可以从容安排。"
+        action={<TodoForm date={date} onAdd={add} error={addError} disabled={disabled || loadFailed} onOpenChange={setAdding} />} />
       {error && <div role="alert" className="mb-4 space-y-2 rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-400">
         <p>{error}</p>{loadFailed && <Button size="sm" onClick={() => void loadTodos()}>重试加载</Button>}
       </div>}
@@ -273,11 +282,10 @@ export default function TodosPage() {
           <div role="progressbar" aria-label="当日完成度" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} className="h-1.5 overflow-hidden rounded-full bg-[var(--control-bg)]"><div className="h-full rounded-full bg-blue-500" style={{ width: pct + "%" }} /></div>
           <p role="status" aria-live="polite" className="mt-2 min-h-5 text-xs text-[color:var(--text-muted)]">{pendingIds.size > 0 ? `正在同步 ${pendingIds.size} 项，可继续勾选。` : "可在“已完成”中恢复任务。"}</p>
         </Card>
-        <TodoForm date={date} onAdd={add} disabled={disabled || loadFailed} />
         {loading ? <div className="flex justify-center py-12"><Spinner size={20} /></div> : loadFailed ? null : (
           <>
             {undone.length ? <Card className="!p-0 overflow-hidden"><div className="divide-y divide-[color:var(--border-subtle)]">{undone.map((todo, index) => renderTodo(todo, index))}</div></Card>
-              : <EmptyState icon={<CheckCircle2 size={20} />} title={done.length ? "当日任务已全部完成" : "这一天没有待办"} description="在上方添加任务，或切换日期查看重复计划。" />}
+              : <EmptyState icon={<CheckCircle2 size={20} />} title={done.length ? "当日任务已全部完成" : "这一天没有待办"} description="点击“添加任务”安排待办，或切换日期查看重复计划。" />}
             {done.length > 0 && <details className="surface"><summary className="cursor-pointer px-4 py-3 text-sm text-[color:var(--text-muted)]">已完成 · {done.length}</summary><div className="divide-y divide-[color:var(--border-subtle)]">{done.map((todo, index) => renderTodo(todo, index))}</div></details>}
             {skipped.length > 0 && <details className="surface"><summary className="cursor-pointer px-4 py-3 text-sm text-[color:var(--text-muted)]">已跳过 · {skipped.length}（可恢复）</summary><div className="divide-y divide-[color:var(--border-subtle)]">{skipped.map((todo) => <div key={todo.id} className="flex items-center justify-between gap-3 px-4 py-3"><span className="break-words text-sm">{todo.text}</span><Button size="sm" disabled={busy || loading || pendingIds.has(todo.id)} onClick={() => void toggle(todo.id)}>恢复这次</Button></div>)}</div></details>}
             {date === today && overdueCount > 0 && <details className="surface" open>

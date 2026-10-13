@@ -9,7 +9,7 @@ import { Card } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
 import { Spinner } from "@/components/ui/Spinner";
 import { createClient } from "@/lib/supabase/client";
-import { authErrorMessage } from "@/lib/auth-errors";
+import { authErrorMessage, safeAuthDestination } from "@/lib/auth-errors";
 
 interface AuthFormProps {
   mode: "login" | "register";
@@ -60,8 +60,7 @@ export function AuthForm({ mode }: AuthFormProps) {
       }
 
       const next = new URLSearchParams(window.location.search).get("next");
-      const safeNext = next && next.startsWith("/") && !next.startsWith("//") ? next : "/";
-      router.replace(safeNext);
+      router.replace(safeAuthDestination(next));
       router.refresh();
     } catch (err: unknown) {
       setError(authErrorMessage(err));
