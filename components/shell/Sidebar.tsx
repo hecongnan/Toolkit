@@ -6,12 +6,11 @@ import { useState } from "react";
 import { useAuth } from "@/components/auth/AuthProvider";
 import {
   LayoutDashboard,
-  BookOpen,
+  CalendarDays,
+  ChartNoAxesCombined,
   CheckCircle2,
-  Github,
   LogOut,
   Moon,
-  Settings,
   Sparkles,
   Sun,
 } from "lucide-react";
@@ -20,10 +19,9 @@ import { createClient } from "@/lib/supabase/client";
 
 const NAV = [
   { href: "/", label: "概览", icon: LayoutDashboard },
-  { href: "/learning", label: "学习资料", icon: BookOpen },
   { href: "/todos", label: "每日待办", icon: CheckCircle2 },
-  { href: "/github", label: "项目分析", icon: Github },
-  { href: "/settings", label: "AI 设置", icon: Settings },
+  { href: "/week", label: "一周计划", icon: CalendarDays },
+  { href: "/review", label: "行动回顾", icon: ChartNoAxesCombined },
 ] as const;
 
 interface SidebarProps {
@@ -65,11 +63,11 @@ export function Sidebar({ onNavigate, theme = "dark", onToggleTheme }: SidebarPr
         </div>
         <div className="leading-tight">
           <p className="text-base font-semibold tracking-tight text-[color:var(--text-primary)]">Toolkit</p>
-          <p className="mt-1 text-xs text-[color:var(--text-muted)]">你的个人工作区</p>
+          <p className="mt-1 text-xs text-[color:var(--text-muted)]">计划 · 执行 · 回顾</p>
         </div>
       </Link>
 
-      <div className="section-label mb-2 px-3">我的空间</div>
+      <div className="section-label mb-2 px-3">我的行动</div>
       <nav aria-label="主要导航" className="flex flex-col gap-1.5">
         {NAV.map(({ href, label, icon: Icon }) => {
           const active =

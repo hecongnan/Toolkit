@@ -17,12 +17,14 @@ const normalizeRow = (row) => ({ ...row,
   occurrence_date: row.occurrence_date instanceof Date ? row.occurrence_date.toISOString().slice(0, 10) : row.occurrence_date,
 });
 
-function loadTs(relativePath) {
+function loadTs(relativePath, dependencies = {}) {
   const filename = path.join(root, relativePath);
   const compiled = ts.transpileModule(readFileSync(filename, "utf8"), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   });
   const mod = new Module(filename, module);
+  const originalRequire = mod.require.bind(mod);
+  mod.require = (request) => Object.hasOwn(dependencies, request) ? dependencies[request] : originalRequire(request);
   mod._compile(compiled.outputText, filename);
   return mod.exports;
 }
@@ -48,6 +50,22 @@ test("task search matches title and time with normalized AND terms", () => {
   assert.equal(todoMatchesQuery(todo, "vue"), false);
   assert.equal(todoMatchesQuery({ text: "中文任务", scheduledTime: null }, "中文"), true);
   assert.equal(todoMatchesQuery(todo, "  "), true);
+});
+
+test("weekly planning uses Monday boundaries across year changes", () => {
+  const dates = loadTs("lib/todo-dates.ts");
+  const { weekStart, dateRange } = loadTs("lib/task-workspace.ts", { "./todo-dates": dates });
+  assert.equal(weekStart("2026-01-01"), "2025-12-29");
+  assert.equal(weekStart("2026-01-04"), "2025-12-29");
+  assert.equal(weekStart("2026-01-05"), "2026-01-05");
+  assert.deepEqual(dateRange("2025-12-29", 7), ["2025-12-29", "2025-12-30", "2025-12-31", "2026-01-01", "2026-01-02", "2026-01-03", "2026-01-04"]);
+  assert.throws(() => weekStart("2026-02-30"), /无效日期/);
+});
+
+test("workspace progress excludes skips and leaves empty percentage undefined", () => {
+  const { taskSummary } = loadTs("lib/task-workspace.ts", { "./todo-dates": loadTs("lib/todo-dates.ts") });
+  assert.deepEqual(taskSummary([]), { total: 0, done: 0, pending: 0, skipped: 0, percent: null });
+  assert.deepEqual(taskSummary([{ done: true }, { done: false }, { done: true, skipped: true }]), { total: 2, done: 1, pending: 1, skipped: 1, percent: 50 });
 });
 
 test("PostgreSQL recurrence migration and operations", async (t) => {

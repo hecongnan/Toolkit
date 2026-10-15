@@ -16,14 +16,9 @@
 ```text
 NEXT_PUBLIC_SUPABASE_URL
 NEXT_PUBLIC_SUPABASE_ANON_KEY
-ANTHROPIC_BASE_URL=https://api.deepseek.com
-ANTHROPIC_AUTH_TOKEN=
-DEEPSEEK_MODEL=deepseek-chat
-DEEPSEEK_CHAT_MODEL=deepseek-chat
-GITHUB_TOKEN=
 ```
 
-`ANTHROPIC_AUTH_TOKEN` 可以留空，让用户在应用的“AI 设置”中使用自己的 Key。`GITHUB_TOKEN` 可选，用于提高 GitHub API 请求限额。
+新版只需要两个 Supabase 变量，旧 AI 和 GitHub token 不再使用。
 
 `NEXT_PUBLIC_SUPABASE_URL` 和 `NEXT_PUBLIC_SUPABASE_ANON_KEY` 会由服务端在请求时注入页面，不需要配置 Docker 构建参数。Supabase anon key 是公开客户端凭据，数据权限由 RLS 控制。
 

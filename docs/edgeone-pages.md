@@ -29,13 +29,7 @@ NEXT_PUBLIC_SUPABASE_URL
 NEXT_PUBLIC_SUPABASE_ANON_KEY
 ```
 
-可选变量：
-
-```text
-GITHUB_TOKEN
-```
-
-用户在应用的“AI 设置”中填写自己的 DeepSeek API Key，因此 EdgeOne 不需要配置 AI Key。`GITHUB_TOKEN` 只用于提高服务端访问 GitHub API 的限额。
+新版行动工作台只需要以上两个变量。旧版 AI 与 GitHub token 不再使用，可从部署环境中移除。
 
 环境变量修改后必须重新部署，新值不会应用到历史部署。
 

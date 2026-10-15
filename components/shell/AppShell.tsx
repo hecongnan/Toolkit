@@ -1,7 +1,6 @@
 "use client";
 
 import { Menu, Moon, RotateCcw, Sun, ChevronRight } from "lucide-react";
-import Link from "next/link";
 import { useEffect, useState, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
 import { useRouter } from "next/navigation";
@@ -11,7 +10,7 @@ import { useAuth } from "@/components/auth/AuthProvider";
 import { safeAuthDestination } from "@/lib/auth-errors";
 
 const AUTH_ROUTES = ["/login", "/register", "/forgot-password", "/update-password"];
-const PROTECTED_ROUTES = ["/", "/learning", "/todos", "/github", "/settings"];
+const PROTECTED_ROUTES = ["/", "/todos", "/week", "/review"];
 type Theme = "dark" | "light";
 
 export function AppShell({ children }: { children: ReactNode }) {
@@ -119,14 +118,13 @@ export function AppShell({ children }: { children: ReactNode }) {
       <div className="min-w-0 flex-1">
         <header className="chrome sticky top-0 z-30 flex h-16 items-center justify-between gap-3 px-4 sm:px-8 lg:px-10">
           <div className="flex min-w-0 items-center gap-2">
-            <button type="button" aria-label="打开导航" aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(true)} className="button icon-button focus-ring md:hidden"><Menu size={20} /></button>
+            <button type="button" aria-label="打开导航" aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(true)} className="button icon-button !h-[44px] !w-[44px] focus-ring md:hidden"><Menu size={20} /></button>
             <span className="hidden text-xs text-[color:var(--text-muted)] sm:inline">工作区</span>
             <ChevronRight size={12} className="hidden text-[color:var(--text-faint)] sm:block" aria-hidden />
-            <span className="truncate text-sm font-medium">{pathname === "/" ? "概览" : pathname?.startsWith("/todos") ? "每日待办" : pathname?.startsWith("/learning") ? "学习资料" : pathname?.startsWith("/github") ? "项目分析" : "AI 设置"}</span>
+            <span className="truncate text-sm font-medium">{pathname === "/" ? "概览" : pathname?.startsWith("/todos") ? "每日待办" : pathname?.startsWith("/week") ? "一周计划" : pathname?.startsWith("/review") ? "行动回顾" : "Toolkit"}</span>
           </div>
           <div className="flex items-center gap-3">
-            <Link href="/settings" className="quiet-link hidden rounded-lg text-xs focus-ring sm:inline">管理 AI 配置</Link>
-            <button type="button" aria-label={theme === "dark" ? "切换到日间样式" : "切换到夜间样式"} onClick={toggleTheme} className="button icon-button focus-ring md:hidden">{theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}</button>
+            <button type="button" aria-label={theme === "dark" ? "切换到日间样式" : "切换到夜间样式"} onClick={toggleTheme} className="button icon-button !h-[44px] !w-[44px] focus-ring md:hidden">{theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}</button>
           </div>
         </header>
         <main key={user?.id} id="main-content" tabIndex={-1} className="outline-none">

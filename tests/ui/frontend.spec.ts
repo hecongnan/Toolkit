@@ -1,4 +1,5 @@
 import { test, expect, type Page, type BrowserContext, type Locator } from "@playwright/test";
+import { shiftDate } from "../../lib/todo-dates";
 
 const host = "frontend-preview.supabase.co";
 const userId = "11111111-1111-4111-8111-111111111111";
@@ -12,9 +13,8 @@ type TodoFixture = {
   scheduled_time: string | null; position: number; created_at: string; updated_at: string;
 };
 type TodoPatchPlan = { wait?: Promise<void>; outcome?: "error" | "empty" | "missing" };
-type ReadSection = "todos" | "materials" | "reports";
+type ReadSection = "todos";
 type ReadPlan = { wait?: Promise<void>; fail?: boolean };
-type MaterialFixture = { id: string; user_id: string; title: string; category: string; tags: string[]; status: "todo" | "doing" | "done"; priority: number; notes: string | null; url: string | null; created_at: string; updated_at: string };
 
 function todoFixture(id: string, text: string, overrides: Partial<TodoFixture> = {}): TodoFixture {
   return { id, user_id: userId, text, priority: 2, done: false, skipped: false, repeat_rule: "none", series_id: null, due_date: today, occurrence_date: null, scheduled_time: null, position: 4096, created_at: timestamp, updated_at: timestamp, ...overrides };
@@ -44,29 +44,22 @@ async function isolate(page: Page, context: BrowserContext, authenticated = true
     { id: "22222222-2222-4222-8222-222222222222", user_id: userId, text: "每天读书", priority: 2, done: false, skipped: false, repeat_rule: "daily", series_id: "22222222-2222-4222-8222-222222222222", due_date: today, occurrence_date: today, scheduled_time: "08:30:00", position: 1024, created_at: timestamp, updated_at: timestamp },
     { id: "33333333-3333-4333-8333-333333333333", user_id: userId, text: "整理学习资料", priority: 1, done: true, skipped: false, repeat_rule: "none", series_id: null, due_date: today, occurrence_date: null, scheduled_time: null, position: 2048, created_at: timestamp, updated_at: timestamp },
   ];
-  const materials: MaterialFixture[] = [
-    { id: "44444444-4444-4444-8444-444444444444", user_id: userId, title: "React 组件设计笔记", category: "前端", tags: ["React", "组件"], status: "doing", priority: 2, notes: "把复杂的问题拆成小而清晰的组件。", url: "https://react.dev", created_at: timestamp, updated_at: timestamp },
-    { id: "55555555-5555-4555-8555-555555555555", user_id: userId, title: "无障碍界面实践", category: "设计", tags: ["A11y"], status: "todo", priority: 1, notes: "为键盘、触摸和不同的视觉需求留出空间。", url: null, created_at: timestamp, updated_at: timestamp },
-  ];
-  const reports = [{ id: "66666666-6666-4666-8666-666666666666", user_id: userId, repo_url: "https://github.com/example/toolkit", owner: "example", repo: "toolkit", branch: "main", summary: "一个清晰、专注的个人工作区。", markdown: "# 项目概览\n\n一个清晰、专注的个人工作区。\n\n## 架构\n\n| 层级 | 说明 |\n| --- | --- |\n| 前端 | React + Next.js |\n| 数据 | Supabase |\n\n## 改进方向\n\n- 统一组件与交互\n- 关注无障碍与移动体验\n", created_at: timestamp }];
   const state = {
     errors, authUser: user, authenticated, authReads: 0, authPlans: [] as { wait?: Promise<void>; status?: number }[],
     todoCreates: [] as Record<string, unknown>[], createPlans: [] as TodoPatchPlan[],
-    failMaterial: false, materialWrites: 0, materialIds: [] as string[],
-    materialPlans: new Map<string, TodoPatchPlan[]>(),
-    materialRequests: [] as { id: string; method: string; payload: Partial<MaterialFixture> }[],
-    todos, materials, reports, todoReads: 0, todoReadDates: [] as string[], todoWrites: [] as { id: string; patch: Partial<TodoFixture> }[],
+    todoEdits: [] as Record<string, unknown>[], editPlans: [] as TodoPatchPlan[],
+    todos, todoReads: 0, todoReadDates: [] as string[], todoWrites: [] as { id: string; patch: Partial<TodoFixture> }[],
     todoPatchPlans: new Map<string, TodoPatchPlan[]>(),
     holdTodoReads: undefined as Promise<void> | undefined,
     readPlans: new Map<ReadSection, ReadPlan[]>(),
-    readCounts: { todos: 0, materials: 0, reports: 0 },
+    readCounts: { todos: 0 },
     failRecurrence: false,
   };
   await page.route("**/*", async (route) => {
     const request = route.request();
     const url = new URL(request.url());
     if (url.hostname === "127.0.0.1") return route.continue();
-    // Deny every unexpected external request, including actual AI calls.
+    // Deny every unexpected external request; never touch production data.
     if (url.hostname !== host) { errors.push(`Unexpected external request: ${url.hostname}`); return route.abort(); }
     const respond = (data: unknown, status = 200, headers: Record<string, string> = {}) => route.fulfill({ status, contentType: "application/json", headers: { "access-control-allow-origin": "*", "access-control-expose-headers": "content-range", ...headers }, body: JSON.stringify(data) });
     const plannedRead = async (section: ReadSection, data: unknown, headers: Record<string, string> = {}) => {
@@ -104,6 +97,27 @@ async function isolate(page: Page, context: BrowserContext, authenticated = true
         const saved = todos.find((row) => row.id === payload.p_id)!;
         return respond(request.headers().accept?.includes("application/vnd.pgrst.object+json") ? saved : [saved]);
       }
+      if (url.pathname.endsWith("/todo_edit")) {
+        const payload = request.postDataJSON();
+        state.todoEdits.push(payload);
+        const plan = state.editPlans.shift();
+        if (plan?.wait) await plan.wait;
+        if (plan?.outcome === "error") return respond({ message: "模拟编辑失败，请重试", code: "P0001" }, 400);
+        const row = todos.find((item) => item.id === payload.p_id);
+        if (!row) return respond({ message: "任务已不存在，请刷新后重试", code: "P0001" }, 400);
+        // Only the edited row is modeled here. Real series effects are covered
+        // by the PostgreSQL tests; todo_edit intentionally returns void/null.
+        const newSchedule = !row.series_id || (row.repeat_rule === "none" && payload.p_repeat !== "none" && payload.p_scope === "single");
+        let dueDate = payload.p_due_date;
+        if (newSchedule && payload.p_repeat === "weekdays") {
+          const due = new Date(`${dueDate}T00:00:00Z`);
+          while ([0, 6].includes(due.getUTCDay())) due.setUTCDate(due.getUTCDate() + 1);
+          dueDate = due.toISOString().slice(0, 10);
+        }
+        Object.assign(row, { text: payload.p_text, priority: payload.p_priority, due_date: dueDate, scheduled_time: payload.p_time });
+        if (newSchedule || payload.p_scope === "future") row.repeat_rule = payload.p_repeat;
+        return respond(null);
+      }
       if (url.pathname.endsWith("/todo_ensure_occurrences") && state.failRecurrence) return respond({ message: "模拟重复计划失败", code: "P0001" }, 400);
       if (url.pathname.endsWith("/todo_remove")) {
         const { p_id, p_scope } = request.postDataJSON();
@@ -133,10 +147,16 @@ async function isolate(page: Page, context: BrowserContext, authenticated = true
       const due = url.searchParams.get("due_date");
       if (due?.startsWith("eq.")) state.todoReadDates.push(due.slice(3));
       const filtered = todos.filter((row) =>
-        (!due || (due.startsWith("eq.") ? row.due_date === due.slice(3) : row.due_date < due.slice(3))) &&
+        url.searchParams.getAll("due_date").every((value) =>
+          value.startsWith("eq.") ? row.due_date === value.slice(3)
+            : value.startsWith("gte.") ? row.due_date >= value.slice(4)
+            : value.startsWith("lte.") ? row.due_date <= value.slice(4)
+            : value.startsWith("lt.") ? row.due_date < value.slice(3) : false) &&
+        (!url.searchParams.has("user_id") || row.user_id === url.searchParams.get("user_id")?.slice(3)) &&
         (!url.searchParams.has("done") || row.done === (url.searchParams.get("done") === "eq.true")) &&
         (!url.searchParams.has("skipped") || row.skipped === (url.searchParams.get("skipped") === "eq.true")),
       );
+      if (url.searchParams.get("order")?.startsWith("due_date")) filtered.sort((a, b) => a.due_date.localeCompare(b.due_date) || a.position - b.position || a.id.localeCompare(b.id));
       const offset = Number(url.searchParams.get("offset") ?? 0);
       const limit = Number(url.searchParams.get("limit") ?? filtered.length);
       // Snapshot before waiting, as a real in-flight read may return stale data.
@@ -144,29 +164,6 @@ async function isolate(page: Page, context: BrowserContext, authenticated = true
       if (state.holdTodoReads) await state.holdTodoReads;
       return plannedRead("todos", data, { "content-range": `${offset}-${Math.max(offset + data.length - 1, offset)}/${filtered.length}` });
     }
-    if (url.pathname === "/rest/v1/materials") {
-      if (request.method() !== "GET") {
-        const payload = request.method() === "DELETE" ? {} : request.postDataJSON() as Partial<MaterialFixture>;
-        const id = payload.id ?? url.searchParams.get("id")?.replace(/^eq\./, "") ?? "";
-        const plan = state.materialPlans.get(id)?.shift();
-        state.materialWrites++;
-        state.materialIds.push(id);
-        state.materialRequests.push({ id, method: request.method(), payload });
-        if (plan?.wait) await plan.wait;
-        if (state.failMaterial || plan?.outcome === "error") return respond({ message: "模拟保存失败，请重试", code: "P0001" }, 400);
-        if (plan?.outcome === "empty") return respond(null);
-        const index = materials.findIndex((row) => row.id === id);
-        if (plan?.outcome === "missing" || (index < 0 && request.method() !== "POST")) return respond({ message: "Cannot coerce the result to a single JSON object", code: "PGRST116" }, 406);
-        if (request.method() === "DELETE") { materials.splice(index, 1); return respond({ id }); }
-        if (index >= 0) Object.assign(materials[index], payload);
-        else materials.push(payload as MaterialFixture);
-        const saved = materials.find((row) => row.id === id)!;
-        return respond(request.headers().accept?.includes("application/vnd.pgrst.object+json") ? saved : [saved]);
-      }
-      return plannedRead("materials", materials);
-    }
-    if (url.pathname === "/rest/v1/analysis_reports") return plannedRead("reports", reports);
-    if (url.pathname === "/rest/v1/analysis_chats") return respond([]);
     errors.push(`Unhandled preview request: ${url.pathname}`);
     return respond({ message: "Unhandled preview request" }, 400);
   });
@@ -568,394 +565,6 @@ test.describe("task undo and mobile menu", () => {
   });
 });
 
-test.describe("learning workflow", () => {
-  test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
-  const card = (page: Page, title: string) => page.getByRole("article", { name: title, exact: true });
-
-  test("concurrent status choices save independently, roll back only the failed card, and retry without reload", async ({ page, context }) => {
-    const state = await isolate(page, context);
-    const first = state.materials[0];
-    const second = state.materials[1];
-    const slow = gate();
-    state.materialPlans.set(first.id, [{ wait: slow.wait, outcome: "error" }]);
-    try {
-      await page.goto("/learning");
-      await expect(card(page, second.title)).toBeVisible();
-      const stable = await watchTodoList(page, card(page, second.title));
-      const reads = state.readCounts.materials;
-      await card(page, first.title).getByLabel("学习状态：" + first.title, { exact: true }).selectOption("done");
-      await expect(card(page, first.title)).toHaveAttribute("aria-busy", "true");
-      await expect(card(page, first.title).getByRole("combobox")).toBeDisabled();
-      await expect(card(page, first.title).getByRole("button", { name: "编辑", exact: true })).toBeDisabled();
-      await expect(page.getByRole("button", { name: "刷新资料", exact: true })).toBeDisabled();
-      await card(page, second.title).getByRole("combobox").selectOption("doing");
-      await expect(card(page, second.title)).toHaveAttribute("aria-busy", "false");
-      slow.release();
-      await expect(card(page, first.title).getByRole("alert")).toContainText("已恢复为进行中");
-      await expect(card(page, first.title).getByRole("combobox")).toHaveValue("doing");
-      await expect(card(page, second.title).getByRole("combobox")).toHaveValue("doing");
-      await card(page, first.title).getByRole("button", { name: "重试状态更新", exact: true }).tap();
-      await expect(card(page, first.title).getByRole("combobox")).toHaveValue("done");
-      await expect(card(page, first.title)).toHaveAttribute("aria-busy", "false");
-      await expect(card(page, first.title).getByRole("alert")).toHaveCount(0);
-      expect(first.status).toBe("done");
-      expect(second.status).toBe("doing");
-      expect(state.materialRequests.map((request) => request.id)).toEqual([first.id, second.id, first.id]);
-      expect(state.readCounts.materials).toBe(reads);
-      await stable();
-      expect(state.errors).toEqual([]);
-    } finally { slow.release(); }
-  });
-
-  for (const outcome of ["empty", "missing"] as const) {
-    test(outcome + " update result cannot falsely confirm a learning status", async ({ page, context }) => {
-      const state = await isolate(page, context);
-      state.materialPlans.set(state.materials[0].id, [{ outcome }]);
-      await page.goto("/learning");
-      const target = card(page, state.materials[0].title);
-      await target.getByRole("combobox").selectOption("done");
-      await expect(target.getByRole("alert")).toBeVisible();
-      await expect(target.getByRole("combobox")).toHaveValue("doing");
-      expect(state.materials[0].status).toBe("doing");
-      expect(state.errors).toEqual([]);
-    });
-  }
-
-  test("refresh preserves existing cards and filters, and a stale read cannot overwrite a new status", async ({ page, context }) => {
-    const state = await isolate(page, context);
-    const read = gate();
-    try {
-      await page.goto("/learning");
-      const target = card(page, state.materials[0].title);
-      await expect(target).toBeVisible();
-      const stable = await watchTodoList(page, target);
-      const initialReads = state.readCounts.materials;
-      state.readPlans.set("materials", [{ wait: read.wait }]);
-      await page.getByRole("button", { name: "刷新资料", exact: true }).tap();
-      await expect.poll(() => state.readCounts.materials).toBe(initialReads + 1);
-      await target.getByRole("combobox").selectOption("done");
-      await expect(target).toHaveAttribute("aria-busy", "false");
-      const response = page.waitForResponse((result) => result.url().includes("/rest/v1/materials?") && result.request().method() === "GET");
-      read.release();
-      await (await response).finished();
-      await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
-      await expect(target.getByRole("combobox")).toHaveValue("done");
-      await stable();
-      await page.getByLabel("搜索学习资料", { exact: true }).fill("React");
-      await page.getByLabel("资料分类", { exact: true }).selectOption("前端");
-      state.readPlans.set("materials", [{ fail: true }]);
-      await page.getByRole("button", { name: "刷新资料", exact: true }).tap();
-      await expect(page.locator("#main-content").getByRole("alert")).toContainText("现有资料仍可使用");
-      await expect(target).toBeVisible();
-      await expect(page.getByLabel("搜索学习资料", { exact: true })).toHaveValue("React");
-      await expect(page.getByLabel("资料分类", { exact: true })).toHaveValue("前端");
-      await page.getByRole("button", { name: "重试加载", exact: true }).tap();
-      await expect(page.locator("#main-content").getByRole("alert")).toHaveCount(0);
-      await stable();
-      expect(state.errors).toEqual([]);
-    } finally { read.release(); }
-  });
-
-  test("search combines terms across fields, category all stays distinct, counts and sort remain clear", async ({ page, context }, info) => {
-    const state = await isolate(page, context);
-    state.materials[1].category = "all";
-    await page.goto("/learning");
-    const filters = page.getByRole("group", { name: "学习状态筛选", exact: true });
-    await expect(filters.getByRole("button", { name: "全部", exact: true })).toContainText("2");
-    await page.getByLabel("资料排序", { exact: true }).selectOption("priority");
-    await expect(page.getByRole("article").first()).toHaveAttribute("aria-label", state.materials[1].title);
-    await page.getByLabel("搜索学习资料", { exact: true }).fill("ＲＥＡＣＴ 组件");
-    await expect(card(page, state.materials[0].title)).toBeVisible();
-    await expect(card(page, state.materials[1].title)).toHaveCount(0);
-    await expect(filters.getByRole("button", { name: "全部", exact: true })).toContainText("1");
-    await filters.getByRole("button", { name: "已完成", exact: true }).tap();
-    await expect(page.getByText("没有匹配的资料", { exact: true })).toBeVisible();
-    await page.getByRole("button", { name: "查看全部资料", exact: true }).tap();
-    await expect(page.getByLabel("搜索学习资料", { exact: true })).toBeFocused();
-    await expect(page.getByRole("article")).toHaveCount(2);
-    await page.getByLabel("资料分类", { exact: true }).selectOption("all");
-    await expect(card(page, state.materials[1].title)).toBeVisible();
-    await expect(card(page, state.materials[0].title)).toHaveCount(0);
-    await page.getByRole("button", { name: "清除筛选", exact: true }).tap();
-    await page.getByLabel("搜索学习资料", { exact: true }).fill("react.dev");
-    await expect(card(page, state.materials[0].title)).toBeVisible();
-    await page.getByRole("button", { name: "清除搜索", exact: true }).tap();
-    await expect(page.getByRole("article")).toHaveCount(2);
-    await page.screenshot({ path: info.outputPath("learning-mobile.png"), fullPage: true });
-    expect(state.materialWrites).toBe(0);
-    expect(state.errors).toEqual([]);
-  });
-
-  test("continue learning opens full notes, returns focus, and never activates unsafe stored links", async ({ page, context }, info) => {
-    const state = await isolate(page, context);
-    const notes = "学习目标\n" + "详细笔记。".repeat(80) + "\n下一步：整理组件接口。\n<script>alert('not html')</script>";
-    state.materials[0].notes = notes;
-    state.materials[0].tags.push("进阶", "记录", "复习");
-    state.materials[1].url = "javascript:alert(1)";
-    await page.goto("/learning");
-    const continuing = page.getByRole("region", { name: "继续学习", exact: true });
-    await expect(continuing.getByRole("link", { name: /继续阅读/ })).toHaveAttribute("href", "https://react.dev/");
-    const trigger = continuing.getByRole("button", { name: "查看笔记", exact: true });
-    await trigger.tap();
-    const dialog = page.getByRole("dialog", { name: "资料详情", exact: true });
-    await expect(dialog.getByRole("region", { name: "完整学习笔记", exact: true })).toContainText("下一步：整理组件接口。");
-    await expect(dialog.getByText("#复习", { exact: true })).toBeVisible();
-    expect(await dialog.locator("script").count()).toBe(0);
-    await expect(dialog.locator(".modal-panel")).toHaveCSS("opacity", "1");
-    await page.screenshot({ path: info.outputPath("learning-notes.png") });
-    await page.keyboard.press("Escape");
-    await expect(trigger).toBeFocused();
-    const unsafe = card(page, state.materials[1].title);
-    await expect(unsafe.getByRole("link")).toHaveCount(0);
-    await unsafe.getByRole("button", { name: "查看笔记", exact: true }).tap();
-    await expect(dialog.getByText("链接格式不安全或无效，请编辑为 http 或 https 链接。", { exact: true })).toBeVisible();
-    await expect(dialog.getByRole("link")).toHaveCount(0);
-    expect(state.materialWrites).toBe(0);
-    expect(state.errors).toEqual([]);
-  });
-
-  test("new and edited materials save actual records without a reload, with safe links and deduplicated Chinese tags", async ({ page, context }) => {
-    const state = await isolate(page, context);
-    await page.goto("/learning");
-    await expect(card(page, state.materials[0].title)).toBeVisible();
-    const reads = state.readCounts.materials;
-    const stable = await watchTodoList(page, card(page, state.materials[0].title));
-    await page.getByRole("button", { name: "添加资料", exact: true }).tap();
-    const dialog = page.getByRole("dialog", { name: "添加资料", exact: true });
-    await dialog.getByLabel("标题").fill("新的学习笔记");
-    for (const unsafe of ["javascript:alert(1)", "data:text/html,hello", "file:///notes", "https://user:password@example.test"]) {
-      await dialog.getByLabel("链接（可选）").fill(unsafe);
-      await expect(dialog.getByLabel("链接（可选）")).toHaveAttribute("aria-invalid", "true");
-      await expect(dialog.getByRole("button", { name: "添加", exact: true })).toBeDisabled();
-    }
-    expect(state.materialWrites).toBe(0);
-    await dialog.getByLabel("链接（可选）").fill("https://example.test/notes");
-    await dialog.getByRole("button", { name: "更多选项", exact: false }).tap();
-    await dialog.getByLabel("标签（逗号分隔）").fill("React，Hooks、React, 组件");
-    await dialog.getByLabel("备注").fill("记录下一步");
-    await dialog.getByRole("button", { name: "添加", exact: true }).tap();
-    await expect(dialog).not.toBeVisible();
-    const created = state.materials.find((material) => material.title === "新的学习笔记")!;
-    expect(created.tags).toEqual(["React", "Hooks", "组件"]);
-    await card(page, created.title).getByRole("button", { name: "编辑", exact: true }).tap();
-    const editing = page.getByRole("dialog", { name: "编辑资料", exact: true });
-    await editing.getByLabel("标题").fill("更新后的学习笔记");
-    await editing.getByRole("button", { name: "保存", exact: true }).tap();
-    await expect(editing).not.toBeVisible();
-    await expect(card(page, "更新后的学习笔记")).toBeVisible();
-    expect(created.id).toBe(state.materialRequests.at(-1)?.id);
-    expect(state.materialRequests.at(-1)?.method).toBe("PATCH");
-    expect(state.readCounts.materials).toBe(reads);
-    await stable();
-    expect(state.errors).toEqual([]);
-  });
-
-  test("delete requires confirmation, stays locked during saving, and preserves the record after a missing result", async ({ page, context }) => {
-    const state = await isolate(page, context);
-    const target = state.materials[1];
-    const wait = gate();
-    state.materialPlans.set(target.id, [{ wait: wait.wait, outcome: "missing" }]);
-    try {
-      await page.goto("/learning");
-      const stable = await watchTodoList(page, card(page, state.materials[0].title));
-      const reads = state.readCounts.materials;
-      await card(page, target.title).getByRole("button", { name: "删除", exact: true }).tap();
-      const dialog = page.getByRole("dialog", { name: "删除学习资料", exact: true });
-      await dialog.getByRole("button", { name: "保留资料", exact: true }).tap();
-      expect(state.materialWrites).toBe(0);
-      await card(page, target.title).getByRole("button", { name: "删除", exact: true }).tap();
-      await dialog.getByRole("button", { name: "确认删除", exact: true }).tap();
-      await expect(dialog.getByRole("button", { name: "正在删除…", exact: true })).toBeDisabled();
-      await page.keyboard.press("Escape");
-      await expect(dialog).toBeVisible();
-      wait.release();
-      await expect(dialog.getByRole("alert")).toBeVisible();
-      expect(state.materials.some((material) => material.id === target.id)).toBe(true);
-      await dialog.getByRole("button", { name: "确认删除", exact: true }).tap();
-      await expect(dialog).not.toBeVisible();
-      await expect(card(page, target.title)).toHaveCount(0);
-      await expect(page.getByLabel("搜索学习资料", { exact: true })).toBeFocused();
-      expect(state.materials.some((material) => material.id === target.id)).toBe(false);
-      expect(state.readCounts.materials).toBe(reads);
-      await stable();
-      expect(state.errors).toEqual([]);
-    } finally { wait.release(); }
-  });
-
-  test("initial load errors have a retry, and small dark layouts support long content and enlarged text", async ({ page, context }, info) => {
-    const state = await isolate(page, context);
-    state.readPlans.set("materials", [{ fail: true }]);
-    state.materials[0].title = "长标题" + "学习资料".repeat(12);
-    state.materials[0].tags = ["long-tag-".repeat(12)];
-    state.materials[0].category = "长分类".repeat(12);
-    await page.setViewportSize({ width: 320, height: 900 });
-    await page.emulateMedia({ colorScheme: "dark", reducedMotion: "reduce" });
-    await page.goto("/learning");
-    await expect(page.locator("#main-content").getByRole("alert")).toBeVisible();
-    await expect(page.getByRole("button", { name: "添加资料", exact: true })).toBeDisabled();
-    await page.getByRole("button", { name: "重试加载", exact: true }).tap();
-    await expect(card(page, state.materials[0].title)).toBeVisible();
-    await noOverflow(page);
-    await page.screenshot({ path: info.outputPath("learning-small-dark.png"), fullPage: true });
-    await page.evaluate(() => { document.documentElement.style.fontSize = "200%"; });
-    await noOverflow(page);
-    await card(page, state.materials[0].title).getByRole("button", { name: "查看笔记", exact: true }).tap();
-    await noOverflow(page);
-    await expect(page.getByRole("dialog").locator(".modal-panel")).toHaveCSS("transform", "none");
-    expect(state.errors).toEqual([]);
-  });
-});
-
-test.describe("welcome workspace", () => {
-  test.use({ viewport: { width: 375, height: 900 }, hasTouch: true, isMobile: true });
-
-  test("tasks are usable while reports are slow and material failure retries independently", async ({ page, context }) => {
-    const state = await isolate(page, context);
-    const slowReport = gate();
-    state.readPlans.set("reports", [{ wait: slowReport.wait }]);
-    state.readPlans.set("materials", [{ fail: true }]);
-    try {
-      await page.goto("/");
-      const task = page.getByRole("link", { name: "在每日待办中查看：每天读书", exact: true });
-      await expect(task).toBeVisible();
-      const node = await task.elementHandle();
-      await expect(page.getByRole("status", { name: "正在加载项目报告", exact: true })).toBeVisible();
-      await expect(page.getByRole("region", { name: "学习资料加载状态" }).getByRole("alert")).toContainText("学习资料暂时无法加载");
-      const before = { ...state.readCounts };
-      await page.getByRole("button", { name: "重试资料", exact: true }).tap();
-      await expect(page.getByRole("region", { name: "学习资料加载状态" })).toHaveCount(0);
-      await expect(page.getByRole("link", { name: "学习资料", exact: true })).toContainText("2");
-      expect(state.readCounts).toEqual({ ...before, materials: before.materials + 1 });
-      expect(await node?.evaluate((element) => element.isConnected)).toBe(true);
-      slowReport.release();
-      await expect(page.getByText("example/toolkit", { exact: true })).toBeVisible();
-      expect(state.errors).toEqual([]);
-    } finally { slowReport.release(); }
-  });
-
-  test("a failed recurrence request only affects tasks", async ({ page, context }) => {
-    const state = await isolate(page, context);
-    state.failRecurrence = true;
-    await page.goto("/");
-    await expect(page.getByRole("region", { name: "今日待办", exact: true }).getByRole("alert")).toContainText("今日待办暂时无法加载");
-    await expect(page.getByText("example/toolkit", { exact: true })).toBeVisible();
-    await expect(page.getByRole("link", { name: "学习资料", exact: true })).toContainText("2");
-    const before = { ...state.readCounts };
-    state.failRecurrence = false;
-    await page.getByRole("button", { name: "重试待办", exact: true }).tap();
-    await expect(page.getByRole("link", { name: "在每日待办中查看：每天读书", exact: true })).toBeVisible();
-    expect(state.readCounts.materials).toBe(before.materials);
-    expect(state.readCounts.reports).toBe(before.reports);
-    expect(state.errors).toEqual([]);
-  });
-
-  test("refresh and failed report retry retain visible task and report content", async ({ page, context }) => {
-    const state = await isolate(page, context);
-    const slowReport = gate();
-    try {
-      await page.goto("/");
-      const task = page.getByRole("link", { name: "在每日待办中查看：每天读书", exact: true });
-      const report = page.getByText("example/toolkit", { exact: true });
-      await expect(report).toBeVisible();
-      await expect(page.getByRole("button", { name: "刷新概览", exact: true })).toBeEnabled();
-      const taskNode = await task.elementHandle();
-      const reportNode = await report.elementHandle();
-      const initialY = await task.evaluate((element) => element.getBoundingClientRect().top + scrollY);
-      state.readPlans.set("reports", [{ wait: slowReport.wait, fail: true }]);
-      await page.getByRole("button", { name: "刷新概览", exact: true }).tap();
-      await expect(page.getByRole("region", { name: "最近分析", exact: true })).toHaveAttribute("aria-busy", "true");
-      await expect(task).toBeVisible();
-      await expect(report).toBeVisible();
-      await expect(page.getByRole("status", { name: /正在加载/ })).toHaveCount(0);
-      expect(await task.evaluate((element) => element.getBoundingClientRect().top + scrollY)).toBeCloseTo(initialY, 0);
-      slowReport.release();
-      await expect(page.getByRole("region", { name: "最近分析", exact: true }).getByRole("alert")).toContainText("已保留上次内容");
-      expect(await taskNode?.evaluate((element) => element.isConnected)).toBe(true);
-      expect(await reportNode?.evaluate((element) => element.isConnected)).toBe(true);
-      const before = { ...state.readCounts };
-      await page.getByRole("button", { name: "重试报告", exact: true }).tap();
-      await expect(page.getByRole("region", { name: "最近分析", exact: true })).toHaveAttribute("aria-busy", "false");
-      await expect(page.getByRole("region", { name: "最近分析", exact: true }).getByRole("alert")).toHaveCount(0);
-      expect(state.readCounts).toEqual({ ...before, reports: before.reports + 1 });
-      expect(state.errors).toEqual([]);
-    } finally { slowReport.release(); }
-  });
-
-  test("an empty account has one clear starting point and optional AI setup", async ({ page, context }, info) => {
-    const state = await isolate(page, context);
-    state.todos.splice(0);
-    state.materials.splice(0);
-    state.reports.splice(0);
-    await page.goto("/");
-    await expect(page.getByRole("heading", { name: "从第一条待办开始", exact: true })).toBeVisible();
-    await expect(page.getByRole("region", { name: "工作区摘要", exact: true })).toHaveCount(0);
-    await expect(page.getByRole("link", { name: "AI 可以稍后设置", exact: true })).toHaveAttribute("href", "/settings");
-    await noOverflow(page);
-    await page.screenshot({ path: info.outputPath("welcome-first-task.png"), fullPage: true });
-    await page.getByRole("link", { name: "创建第一条待办", exact: true }).tap();
-    await expect(page.getByRole("heading", { name: "每日待办", exact: true })).toBeVisible();
-    await expect(page.getByRole("button", { name: "添加任务", exact: true })).toBeEnabled();
-    expect(state.errors).toEqual([]);
-  });
-
-  test("an empty day with future tasks is not treated as a new account", async ({ page, context }) => {
-    const state = await isolate(page, context);
-    const tomorrow = new Date(Date.parse(`${today}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10);
-    state.todos.splice(0, state.todos.length, todoFixture("77777777-7777-4777-8777-777777777777", "明天已有安排", { due_date: tomorrow }));
-    state.materials.splice(0);
-    state.reports.splice(0);
-    await page.goto("/");
-    await expect(page.getByText("今天还没有安排", { exact: true })).toBeVisible();
-    await expect(page.getByRole("region", { name: "工作区摘要", exact: true })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "从第一条待办开始", exact: true })).toHaveCount(0);
-    expect(state.errors).toEqual([]);
-  });
-
-  test("mobile shows tasks before statistics, keeps times and provides a real viewing link", async ({ page, context }, info) => {
-    await isolate(page, context);
-    await page.goto("/");
-    const taskRegion = page.getByRole("region", { name: "今日待办", exact: true });
-    const summary = page.getByRole("region", { name: "工作区摘要", exact: true });
-    await expect(taskRegion.getByText("08:30", { exact: true })).toBeVisible();
-    const taskBox = await taskRegion.boundingBox();
-    const summaryBox = await summary.boundingBox();
-    expect(summaryBox!.y).toBeGreaterThanOrEqual(taskBox!.y + taskBox!.height);
-    await noOverflow(page);
-    await page.screenshot({ path: info.outputPath("welcome-mobile-tasks-first.png"), fullPage: true });
-    await taskRegion.getByRole("link", { name: "在每日待办中查看：每天读书", exact: true }).tap();
-    await expect(page).toHaveURL(/\/todos$/);
-    await expect(todoRow(page, "每天读书")).toBeVisible();
-  });
-
-  test("password visibility preserves input, does not submit, and supports keyboard toggling", async ({ page, context }, info) => {
-    const state = await isolate(page, context, false);
-    for (const path of ["/login", "/register"]) {
-      await page.goto(path);
-      const password = page.getByLabel("密码", { exact: true });
-      await password.fill("preview-password");
-      await password.focus();
-      const show = page.getByRole("button", { name: "显示密码", exact: true });
-      const box = await show.boundingBox();
-      expect(box!.width).toBeGreaterThanOrEqual(44);
-      expect(box!.height).toBeGreaterThanOrEqual(44);
-      await show.tap();
-      await expect(password).toHaveAttribute("type", "text");
-      await expect(password).toHaveValue("preview-password");
-      await expect(password).toBeFocused();
-      const hide = page.getByRole("button", { name: "隐藏密码", exact: true });
-      await hide.focus();
-      await page.keyboard.press("Space");
-      await expect(password).toHaveAttribute("type", "password");
-      await expect(password).toHaveValue("preview-password");
-      if (path === "/login") await expect(password).toHaveAttribute("placeholder", "输入密码");
-      else await expect(page.locator("#password-help")).toBeVisible();
-      await noOverflow(page);
-      await page.screenshot({ path: info.outputPath(`welcome-${path.slice(1)}-password.png`), fullPage: true });
-    }
-    expect(state.errors).toEqual([]);
-  });
-});
-
 for (const mode of [
   { name: "desktop light", width: 1440, theme: "light" },
   { name: "desktop dark", width: 1440, theme: "dark" },
@@ -969,9 +578,8 @@ for (const mode of [
     for (const [path, title, content] of [
       ["/", "今天，专注重要的事。", "每天读书"],
       ["/todos", "每日待办", "每天读书"],
-      ["/learning", "学习资料", "React 组件设计笔记"],
-      ["/github", "项目分析", "example/toolkit"],
-      ["/settings", "AI 设置", "DeepSeek"],
+      ["/week", "一周计划", "本周"],
+      ["/review", "行动回顾", "每天的计划与完成情况"],
     ]) {
       await page.goto(path);
       await expect(page.getByRole("heading", { level: 1, name: title })).toBeVisible();
@@ -1022,8 +630,8 @@ test("mobile drawer is modal, returns focus, navigates and closes when resized",
   await page.keyboard.press("Escape");
   await expect(trigger).toBeFocused();
   await trigger.click();
-  await dialog.getByRole("link", { name: "学习资料", exact: true }).click();
-  await expect(page.getByRole("heading", { level: 1, name: "学习资料" })).toBeVisible();
+  await dialog.getByRole("link", { name: "一周计划", exact: true }).click();
+  await expect(page.getByRole("heading", { level: 1, name: "一周计划" })).toBeVisible();
   await expect(dialog).not.toBeVisible();
   await trigger.click();
   await page.setViewportSize({ width: 1440, height: 1000 });
@@ -1034,7 +642,7 @@ test("mobile drawer is modal, returns focus, navigates and closes when resized",
 test("theme follows system until explicitly chosen, then survives reload", async ({ page, context }) => {
   await isolate(page, context);
   await page.emulateMedia({ colorScheme: "dark" });
-  await page.goto("/settings");
+  await page.goto("/review");
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
   await page.emulateMedia({ colorScheme: "light" });
   await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
@@ -1046,7 +654,7 @@ test("theme follows system until explicitly chosen, then survives reload", async
 
 test("small text theme tokens meet 4.5:1 against the application surfaces", async ({ page, context }) => {
   await isolate(page, context);
-  await page.goto("/settings");
+  await page.goto("/review");
   const ratios = await page.evaluate(() => {
     const luminance = (hex: string) => {
       const raw = hex.trim().replace("#", "");
@@ -1105,7 +713,7 @@ test.describe("shared workspace authentication", () => {
         }
       }).observe(document.body, { childList: true, subtree: true });
     });
-    for (const [label, title] of [["学习资料", "学习资料"], ["概览", "今天，专注重要的事。"], ["AI 设置", "AI 设置"], ["项目分析", "项目分析"], ["每日待办", "每日待办"]]) {
+    for (const [label, title] of [["一周计划", "一周计划"], ["概览", "今天，专注重要的事。"], ["行动回顾", "行动回顾"], ["每日待办", "每日待办"]]) {
       await page.getByRole("navigation", { name: "主要导航", exact: true }).getByRole("link", { name: label, exact: true }).click();
       await expect(page.getByRole("heading", { level: 1, name: title, exact: true })).toBeVisible();
     }
@@ -1369,6 +977,212 @@ test.describe("task creation dialog", () => {
   });
 });
 
+test.describe("safe task editing", () => {
+  async function openEditor(page: Page, title = "每天读书") {
+    await todoRow(page, title).getByRole("button", { name: "编辑", exact: true }).click();
+    return page.getByRole("dialog", { name: "编辑任务", exact: true });
+  }
+
+  test("all close paths protect modified input and discard leaves the saved task intact", async ({ page, context }, info) => {
+    const state = await isolate(page, context);
+    await page.goto("/todos");
+    let dialog = await openEditor(page);
+    await expect(dialog.getByRole("button", { name: "保存", exact: true })).toBeDisabled();
+    await page.keyboard.press("Escape");
+    await expect(dialog).not.toBeVisible();
+    const trigger = todoRow(page, "每天读书").getByRole("button", { name: "编辑", exact: true });
+    await expect(trigger).toBeFocused();
+    dialog = await openEditor(page);
+    await dialog.getByLabel("任务内容", { exact: true }).fill("尚未保存的阅读计划");
+    await dialog.getByLabel("计划时间", { exact: true }).fill("09:15");
+    for (const close of ["escape", "cancel", "close", "backdrop"]) {
+      if (close === "escape") await page.keyboard.press("Escape");
+      else if (close === "backdrop") await page.mouse.click(4, 4);
+      else await dialog.getByRole("button", { name: close === "cancel" ? "取消" : "关闭", exact: true }).click();
+      await expect(dialog.getByRole("alert", { name: "未保存的任务修改" })).toBeVisible();
+      await expect(dialog.getByRole("button", { name: "继续编辑", exact: true })).toBeFocused();
+      await dialog.getByRole("button", { name: "继续编辑", exact: true }).click();
+      await expect(dialog.getByLabel("任务内容", { exact: true })).toBeFocused();
+      await expect(dialog.getByLabel("任务内容", { exact: true })).toHaveValue("尚未保存的阅读计划");
+      await expect(dialog.getByLabel("计划时间", { exact: true })).toHaveValue("09:15");
+    }
+    await dialog.getByRole("button", { name: "取消", exact: true }).click();
+    await page.screenshot({ path: info.outputPath("task-edit-discard-confirmation.png") });
+    await dialog.getByRole("button", { name: "放弃修改并关闭", exact: true }).click();
+    await expect(trigger).toBeFocused();
+    dialog = await openEditor(page);
+    await expect(dialog.getByLabel("任务内容", { exact: true })).toHaveValue("每天读书");
+    await expect(dialog.getByLabel("计划时间", { exact: true })).toHaveValue("08:30");
+    expect(state.todoEdits).toHaveLength(0);
+    expect(state.errors).toEqual([]);
+  });
+
+  test("scope changes preserve inputs while only the active scope reaches the server", async ({ page, context }) => {
+    const state = await isolate(page, context);
+    await page.goto("/todos");
+    const dialog = await openEditor(page);
+    await dialog.getByLabel("日期", { exact: true }).fill("2030-11-04");
+    await dialog.getByLabel("任务内容", { exact: true }).fill("每周阅读");
+    await dialog.getByLabel("计划时间", { exact: true }).fill("09:15");
+    await dialog.getByRole("button", { name: "低 · P3", exact: true }).click();
+    await dialog.getByLabel("修改范围", { exact: true }).selectOption("future");
+    await expect(dialog.getByLabel("日期", { exact: true })).toBeDisabled();
+    await expect(dialog.getByLabel("日期", { exact: true })).toHaveValue(today);
+    await dialog.getByLabel("重复", { exact: true }).selectOption("weekly");
+    await dialog.getByLabel("修改范围", { exact: true }).selectOption("single");
+    await expect(dialog.getByLabel("日期", { exact: true })).toHaveValue("2030-11-04");
+    await expect(dialog.getByLabel("重复", { exact: true })).toHaveValue("daily");
+    await expect(dialog.getByLabel("重复", { exact: true })).toBeDisabled();
+    await dialog.getByLabel("修改范围", { exact: true }).selectOption("future");
+    await expect(dialog.getByLabel("重复", { exact: true })).toHaveValue("weekly");
+    await expect(dialog.getByLabel("任务内容", { exact: true })).toHaveValue("每周阅读");
+    await dialog.getByRole("button", { name: "保存", exact: true }).click();
+    await expect(dialog).not.toBeVisible();
+    expect(state.todoEdits).toHaveLength(1);
+    expect(state.todoEdits[0]).toMatchObject({ p_scope: "future", p_due_date: today, p_repeat: "weekly", p_time: "09:15", p_priority: 3, p_text: "每周阅读" });
+    await expect(page.getByText("这次及以后的计划已更新。", { exact: true })).toBeVisible();
+    expect(state.errors).toEqual([]);
+  });
+
+  test("quick rescheduling and clearing time do not submit until save and explain the destination", async ({ page, context }) => {
+    const state = await isolate(page, context);
+    const next = new Date(`${today}T00:00:00Z`);
+    next.setUTCDate(next.getUTCDate() + 1);
+    const tomorrow = next.toISOString().slice(0, 10);
+    await page.goto("/todos");
+    const dialog = await openEditor(page);
+    await dialog.getByRole("button", { name: "明天", exact: true }).click();
+    await expect(dialog.getByLabel("日期", { exact: true })).toHaveValue(tomorrow);
+    await dialog.getByRole("button", { name: "今天", exact: true }).click();
+    await expect(dialog.getByLabel("日期", { exact: true })).toHaveValue(today);
+    await dialog.getByRole("button", { name: "明天", exact: true }).click();
+    await dialog.getByRole("button", { name: "清除计划时间", exact: true }).click();
+    await expect(dialog.getByLabel("计划时间", { exact: true })).toHaveValue("");
+    expect(state.todoEdits).toHaveLength(0);
+    await dialog.getByRole("button", { name: "保存", exact: true }).click();
+    await expect(dialog).not.toBeVisible();
+    expect(state.todoEdits[0]).toMatchObject({ p_scope: "single", p_due_date: tomorrow, p_time: null, p_repeat: "daily" });
+    await expect(page.getByText(`任务已保存，安排在 ${tomorrow}。可切换日期查看。`, { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "下一天", exact: true }).click();
+    await expect(todoRow(page, "每天读书")).toBeVisible();
+    expect(state.errors).toEqual([]);
+  });
+
+  test("failed edits preserve input, slow retries lock every close path and duplicate submits", async ({ page, context }) => {
+    const state = await isolate(page, context);
+    state.todos.push(todoFixture("77777777-7777-4777-8777-777777777777", "不受影响的任务"));
+    const slow = gate();
+    state.editPlans.push({ outcome: "error" }, { wait: slow.wait });
+    try {
+      await page.goto("/todos");
+      const stable = await watchTodoList(page, todoRow(page, "不受影响的任务"));
+      const dialog = await openEditor(page);
+      await dialog.getByLabel("任务内容", { exact: true }).fill("失败后保留的任务");
+      await dialog.getByRole("button", { name: "保存", exact: true }).click();
+      await expect(dialog.getByRole("alert")).toContainText("模拟编辑失败");
+      await expect(dialog.getByLabel("任务内容", { exact: true })).toHaveValue("失败后保留的任务");
+      await dialog.getByRole("button", { name: "保存", exact: true }).click();
+      await expect.poll(() => state.todoEdits.length).toBe(2);
+      await expect(dialog.getByRole("button", { name: "正在保存…", exact: true })).toBeDisabled();
+      await expect(dialog.getByLabel("任务内容", { exact: true })).toBeDisabled();
+      await page.keyboard.press("Escape");
+      await dialog.getByRole("button", { name: "关闭", exact: true }).click();
+      await page.mouse.click(4, 4);
+      await dialog.locator("form").evaluate((form: HTMLFormElement) => { form.requestSubmit(); form.requestSubmit(); });
+      await expect(dialog).toBeVisible();
+      await expect(dialog.getByRole("alert", { name: "未保存的任务修改" })).toHaveCount(0);
+      expect(state.todoEdits).toHaveLength(2);
+      slow.release();
+      await expect(dialog).not.toBeVisible();
+      await expect(todoRow(page, "失败后保留的任务")).toBeVisible();
+      expect(state.todoEdits[0]).toEqual(state.todoEdits[1]);
+      await stable();
+      expect(state.errors).toEqual([]);
+    } finally { slow.release(); }
+  });
+
+  test("invalid and unchanged edits cannot submit; changed fields alone are protected", async ({ page, context }) => {
+    const state = await isolate(page, context);
+    await page.goto("/todos");
+    const dialog = await openEditor(page);
+    await dialog.getByLabel("任务内容", { exact: true }).fill("   ");
+    await expect(dialog.getByRole("button", { name: "保存", exact: true })).toBeDisabled();
+    await dialog.getByLabel("任务内容", { exact: true }).fill("每天读书");
+    await dialog.getByLabel("日期", { exact: true }).fill("");
+    await expect(dialog.getByRole("button", { name: "保存", exact: true })).toBeDisabled();
+    await dialog.getByLabel("日期", { exact: true }).fill(today);
+    await expect(dialog.getByRole("button", { name: "保存", exact: true })).toBeDisabled();
+    await dialog.getByRole("button", { name: "高 · P1", exact: true }).click();
+    await page.keyboard.press("Escape");
+    await expect(dialog.getByRole("alert", { name: "未保存的任务修改" })).toBeVisible();
+    expect(state.todoEdits).toHaveLength(0);
+    expect(state.errors).toEqual([]);
+  });
+
+  test("saving a title outside the current search restores keyboard focus to search", async ({ page, context }) => {
+    const state = await isolate(page, context);
+    await page.goto("/todos");
+    const input = page.getByLabel("搜索当前任务", { exact: true });
+    await input.fill("读书");
+    const dialog = await openEditor(page);
+    await dialog.getByLabel("任务内容", { exact: true }).fill("每日散步");
+    await dialog.getByRole("button", { name: "保存", exact: true }).click();
+    await expect(dialog).not.toBeVisible();
+    await expect(input).toBeFocused();
+    await expect(input).toHaveValue("读书");
+    await expect(page.getByText("没有匹配的任务", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "清除任务搜索", exact: true }).click();
+    await expect(todoRow(page, "每日散步")).toBeVisible();
+    expect(state.errors).toEqual([]);
+  });
+
+  test("starting weekday repetition reports the actual first date after weekend rollover", async ({ page, context }) => {
+    const state = await isolate(page, context);
+    state.todos.push(todoFixture("77777777-7777-4777-8777-777777777777", "单次学习"));
+    await page.goto("/todos");
+    const dialog = await openEditor(page, "单次学习");
+    await dialog.getByLabel("日期", { exact: true }).fill("2026-10-17");
+    await dialog.getByLabel("重复", { exact: true }).selectOption("weekdays");
+    await dialog.getByRole("button", { name: "保存", exact: true }).click();
+    await expect(dialog).not.toBeVisible();
+    await expect(page.getByText("任务已保存，安排在 2026-10-19。可切换日期查看。", { exact: true })).toBeVisible();
+    expect(state.errors).toEqual([]);
+  });
+});
+
+test.describe("mobile task editing", () => {
+  test.use({ hasTouch: true, isMobile: true });
+  for (const largeText of [false, true]) {
+    test(`editing stays usable with sticky actions: ${largeText ? "320px large text" : "short touch screen"}`, async ({ page, context }, info) => {
+      const state = await isolate(page, context);
+      await page.setViewportSize(largeText ? { width: 320, height: 900 } : { width: 375, height: 560 });
+      await page.emulateMedia({ reducedMotion: "reduce", colorScheme: largeText ? "dark" : "light" });
+      await page.goto("/todos");
+      await page.getByRole("button", { name: "更多操作：每天读书", exact: true }).tap();
+      await page.getByRole("menuitem", { name: "编辑", exact: true }).tap();
+      const dialog = page.getByRole("dialog", { name: "编辑任务", exact: true });
+      if (largeText) await page.evaluate(() => { document.documentElement.style.fontSize = "200%"; });
+      await dialog.getByLabel("任务内容", { exact: true }).fill("手机上编辑阅读计划");
+      const panel = dialog.locator(".modal-panel");
+      await panel.evaluate((node) => node.scrollTo(0, 0));
+      const save = dialog.getByRole("button", { name: "保存", exact: true });
+      const bounds = await panel.boundingBox();
+      const button = await save.boundingBox();
+      expect(button!.y).toBeGreaterThanOrEqual(bounds!.y);
+      expect(button!.y + button!.height).toBeLessThanOrEqual(bounds!.y + bounds!.height);
+      expect(button!.height).toBeGreaterThanOrEqual(44);
+      expect(await panel.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
+      await noOverflow(page);
+      await page.screenshot({ path: info.outputPath("task-edit-mobile.png") });
+      await save.tap();
+      await expect(dialog).not.toBeVisible();
+      await expect(todoRow(page, "手机上编辑阅读计划")).toBeVisible();
+      expect(state.todoEdits).toHaveLength(1);
+      expect(state.errors).toEqual([]);
+    });
+  }
+});
+
 test.describe("task search and view memory", () => {
   const viewKey = `toolkit:todo-view:${userId}`;
   const future = "2030-11-04";
@@ -1474,8 +1288,8 @@ test.describe("task search and view memory", () => {
     await page.getByLabel("选择任务日期", { exact: true }).fill(future);
     await expect(todoRow(page, "未来阅读")).toBeVisible();
     await page.getByLabel("搜索当前任务", { exact: true }).fill("阅读");
-    await page.getByRole("link", { name: "AI 设置", exact: true }).click();
-    await expect(page.getByRole("heading", { level: 1, name: "AI 设置" })).toBeVisible();
+    await page.getByRole("link", { name: "行动回顾", exact: true }).click();
+    await expect(page.getByRole("heading", { level: 1, name: "行动回顾" })).toBeVisible();
     state.todoReadDates.length = 0;
     await page.getByRole("link", { name: "每日待办", exact: true }).click();
     await expect(page.getByLabel("选择任务日期", { exact: true })).toHaveValue(future);
@@ -1651,8 +1465,8 @@ test.describe("task draft recovery", () => {
     await expect.poll(() => page.evaluate((key) => JSON.parse(sessionStorage.getItem(key) ?? "null")?.draft.text, draftKey)).toBe("跨页面保留的计划");
     const id = await page.evaluate((key) => JSON.parse(sessionStorage.getItem(key)!).draft.id, draftKey);
     await dialog.getByRole("button", { name: "取消", exact: true }).click();
-    await page.getByRole("navigation", { name: "主要导航" }).getByRole("link", { name: "AI 设置", exact: true }).click();
-    await expect(page.getByRole("heading", { name: "AI 设置", exact: true })).toBeVisible();
+    await page.getByRole("navigation", { name: "主要导航" }).getByRole("link", { name: "行动回顾", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "行动回顾", exact: true })).toBeVisible();
     await page.getByRole("navigation", { name: "主要导航" }).getByRole("link", { name: "每日待办", exact: true }).click();
     await page.getByRole("button", { name: "添加任务", exact: true }).click();
     await expect(dialog.getByText("已恢复此标签页中的任务草稿。", { exact: true })).toBeVisible();
@@ -1831,285 +1645,10 @@ test.describe("task draft recovery", () => {
   });
 });
 
-test.describe("friendly learning library", () => {
-  test.use({ hasTouch: true });
-  const draftKey = `toolkit:material-draft:${userId}:new`;
-  const card = (page: Page, title: string) => page.getByRole("article", { name: title, exact: true });
-
-  test("quick capture keeps optional fields collapsed and offers touch-sized category suggestions", async ({ page, context }, info) => {
-    const state = await isolate(page, context);
-    await page.setViewportSize({ width: 375, height: 900 });
-    await page.emulateMedia({ reducedMotion: "reduce" });
-    await page.goto("/learning");
-    await page.getByRole("button", { name: "添加资料", exact: true }).tap();
-    const dialog = page.getByRole("dialog", { name: "添加资料", exact: true });
-    await expect(dialog.getByLabel("标题")).toBeFocused();
-    await expect(dialog.getByLabel("备注")).toBeVisible();
-    await expect(dialog.getByLabel("分类", { exact: true })).not.toBeVisible();
-    await dialog.getByLabel("标题").fill("快速收藏");
-    await dialog.locator(".modal-panel").evaluate((node) => node.scrollTo(0, 0));
-    await page.screenshot({ path: info.outputPath("learning-quick-capture.png") });
-    await dialog.getByRole("button", { name: /更多选项/ }).tap();
-    const suggestion = dialog.getByRole("group", { name: "已有分类建议" }).getByRole("button", { name: "前端", exact: true });
-    expect((await suggestion.boundingBox())!.height).toBeGreaterThanOrEqual(44);
-    await suggestion.tap();
-    await expect(dialog.getByLabel("分类", { exact: true })).toHaveValue("前端");
-    await dialog.getByLabel("分类", { exact: true }).fill("新分类");
-    await dialog.getByLabel("标签（逗号分隔）").fill("基础，基础、收藏");
-    await page.screenshot({ path: info.outputPath("learning-more-options.png") });
-    await dialog.getByRole("button", { name: "添加", exact: true }).tap();
-    await expect(dialog).not.toBeVisible();
-    const saved = state.materials.find((item) => item.title === "快速收藏")!;
-    expect(saved).toMatchObject({ category: "新分类", status: "todo", priority: 2, tags: ["基础", "收藏"] });
-    expect(await page.evaluate((key) => sessionStorage.getItem(key), draftKey)).toBeNull();
-    await noOverflow(page);
-    expect(state.errors).toEqual([]);
-  });
-
-  test("Escape and cancel protect input, retained drafts survive refresh and keep the retry id", async ({ page, context }) => {
-    const state = await isolate(page, context);
-    await page.goto("/learning");
-    await page.getByRole("button", { name: "添加资料", exact: true }).click();
-    let dialog = page.getByRole("dialog", { name: "添加资料", exact: true });
-    await dialog.getByLabel("标题").fill("尚未保存的课程");
-    await dialog.getByLabel("备注").fill("学到第三章，下次继续");
-    await expect.poll(() => page.evaluate((key) => JSON.parse(sessionStorage.getItem(key) ?? "null")?.title, draftKey)).toBe("尚未保存的课程");
-    const original = await page.evaluate((key) => JSON.parse(sessionStorage.getItem(key)!), draftKey);
-    await page.keyboard.press("Escape");
-    await expect(dialog.getByRole("alert", { name: "未保存的修改" })).toBeVisible();
-    await expect(dialog.getByRole("button", { name: "继续编辑", exact: true })).toBeFocused();
-    await dialog.getByRole("button", { name: "继续编辑", exact: true }).click();
-    await expect(dialog.getByLabel("备注")).toHaveValue("学到第三章，下次继续");
-    await dialog.getByRole("button", { name: "取消", exact: true }).click();
-    await dialog.getByRole("button", { name: "保留草稿并关闭", exact: true }).click();
-    await expect(dialog).not.toBeVisible();
-    expect(state.materialWrites).toBe(0);
-    page.once("dialog", (prompt) => prompt.accept());
-    await page.reload();
-    await page.getByRole("button", { name: "添加资料", exact: true }).click();
-    dialog = page.getByRole("dialog", { name: "添加资料", exact: true });
-    await expect(dialog.getByText("已恢复此标签页中的未保存草稿。", { exact: true })).toBeVisible();
-    await expect(dialog.getByLabel("标题")).toHaveValue("尚未保存的课程");
-    await expect(dialog.getByLabel("备注")).toHaveValue("学到第三章，下次继续");
-    await dialog.getByRole("button", { name: "添加", exact: true }).click();
-    await expect(dialog).not.toBeVisible();
-    expect(state.materialIds).toEqual([original.id]);
-    expect(await page.evaluate((key) => sessionStorage.getItem(key), draftKey)).toBeNull();
-    expect(state.errors).toEqual([]);
-  });
-
-  test("clearing and discarding drafts are explicit and never delete existing records", async ({ page, context }) => {
-    const state = await isolate(page, context);
-    await page.goto("/learning");
-    await card(page, state.materials[0].title).getByRole("button", { name: "编辑", exact: true }).click();
-    const dialog = page.getByRole("dialog", { name: "编辑资料", exact: true });
-    await dialog.getByLabel("标题").fill("暂存编辑");
-    await dialog.getByRole("button", { name: "清除草稿", exact: true }).click();
-    await dialog.getByRole("button", { name: "保留内容", exact: true }).click();
-    await expect(dialog.getByLabel("标题")).toHaveValue("暂存编辑");
-    await dialog.getByRole("button", { name: "清除草稿", exact: true }).click();
-    await dialog.getByRole("button", { name: "确认清除草稿", exact: true }).click();
-    await expect(dialog.getByLabel("标题")).toHaveValue(state.materials[0].title);
-    await dialog.getByLabel("备注").fill("不想保留的修改");
-    await dialog.getByRole("button", { name: "关闭", exact: true }).click();
-    await dialog.getByRole("button", { name: "放弃修改并关闭", exact: true }).click();
-    await expect(dialog).not.toBeVisible();
-    await card(page, state.materials[0].title).getByRole("button", { name: "编辑", exact: true }).click();
-    await expect(dialog.getByLabel("备注")).toHaveValue(state.materials[0].notes!);
-    expect(state.materialWrites).toBe(0);
-    expect(state.materials).toHaveLength(2);
-    expect(state.errors).toEqual([]);
-  });
-
-  test("unavailable draft storage gives honest feedback and still permits saving", async ({ page, context }) => {
-    const state = await isolate(page, context);
-    await page.addInitScript(() => {
-      const original = Storage.prototype.setItem;
-      Storage.prototype.setItem = function (key, value) {
-        if (key.startsWith("toolkit:material-draft:")) throw new DOMException("Preview storage full", "QuotaExceededError");
-        return original.call(this, key, value);
-      };
-    });
-    await page.goto("/learning");
-    await page.getByRole("button", { name: "添加资料", exact: true }).click();
-    const dialog = page.getByRole("dialog", { name: "添加资料", exact: true });
-    await dialog.getByLabel("标题").fill("存储不可用仍能保存");
-    await expect(dialog.getByText("无法保留草稿，请勿关闭页面。", { exact: true })).toBeVisible();
-    await page.keyboard.press("Escape");
-    await expect(dialog.getByRole("button", { name: "保留草稿并关闭", exact: true })).toHaveCount(0);
-    await dialog.getByRole("button", { name: "继续编辑", exact: true }).click();
-    await dialog.getByRole("button", { name: "添加", exact: true }).click();
-    await expect(dialog).not.toBeVisible();
-    expect(state.materialWrites).toBe(1);
-    expect(state.errors).toEqual([]);
-  });
-
-  test("saving locks dismissal and duplicate submissions without losing the draft", async ({ page, context }) => {
-    const state = await isolate(page, context);
-    const wait = gate();
-    try {
-      await page.goto("/learning");
-      await page.getByRole("button", { name: "添加资料", exact: true }).click();
-      const dialog = page.getByRole("dialog", { name: "添加资料", exact: true });
-      await dialog.getByLabel("标题").fill("等待同步");
-      await expect.poll(() => page.evaluate((key) => JSON.parse(sessionStorage.getItem(key) ?? "null")?.id, draftKey)).toBeTruthy();
-      const id = await page.evaluate((key) => JSON.parse(sessionStorage.getItem(key)!).id, draftKey);
-      state.materialPlans.set(id, [{ wait: wait.wait }]);
-      await dialog.getByRole("button", { name: "添加", exact: true }).click();
-      await expect.poll(() => state.materialWrites).toBe(1);
-      await page.keyboard.press("Escape");
-      await dialog.getByRole("button", { name: "关闭", exact: true }).click();
-      await expect(dialog.getByLabel("标题")).toBeDisabled();
-      await expect(dialog.getByRole("alert", { name: "未保存的修改" })).toHaveCount(0);
-      wait.release();
-      await expect(dialog).not.toBeVisible();
-      expect(state.materialWrites).toBe(1);
-    } finally { wait.release(); }
-    expect(state.errors).toEqual([]);
-  });
-
-  test("filters and scroll position return after navigating away, while explicit links override memory", async ({ page, context }) => {
-    const state = await isolate(page, context);
-    for (let i = 0; i < 28; i++) state.materials.push({ ...state.materials[0], id: `77777777-7777-4777-8777-${String(i).padStart(12, "0")}`, title: `React 学习资料 ${i}` });
-    await page.setViewportSize({ width: 1280, height: 800 });
-    await page.goto("/learning");
-    await expect(card(page, state.materials[0].title)).toBeVisible();
-    await page.getByLabel("搜索学习资料", { exact: true }).fill("React");
-    await page.getByLabel("资料分类", { exact: true }).selectOption("前端");
-    await page.getByRole("group", { name: "学习状态筛选" }).getByRole("button", { name: "进行中", exact: true }).click();
-    await page.getByLabel("资料排序", { exact: true }).selectOption("priority");
-    await expect(page).toHaveURL(/sort=priority/);
-    await page.evaluate(() => window.scrollTo(0, 1100));
-    await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(1100);
-    await expect.poll(() => page.evaluate((id) => JSON.parse(sessionStorage.getItem(`toolkit:learning-view:${id}`)!)?.scroll, userId)).toBe(1100);
-    await page.getByRole("link", { name: "每日待办", exact: true }).click();
-    await expect(page.getByRole("heading", { level: 1, name: "每日待办" })).toBeVisible();
-    await page.getByRole("link", { name: "学习资料", exact: true }).click();
-    await expect(page.getByLabel("搜索学习资料", { exact: true })).toHaveValue("React");
-    await expect(page.getByLabel("资料分类", { exact: true })).toHaveValue("前端");
-    await expect(page.getByLabel("资料排序", { exact: true })).toHaveValue("priority");
-    await expect(page.getByRole("group", { name: "学习状态筛选" }).getByRole("button", { name: "进行中", exact: true })).toHaveAttribute("aria-pressed", "true");
-    await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(1100);
-    await page.goto("/learning?q=无障碍&status=todo");
-    await expect(page.getByLabel("搜索学习资料", { exact: true })).toHaveValue("无障碍");
-    await expect(page.getByLabel("资料分类", { exact: true })).toHaveValue("");
-    await expect(page.getByLabel("资料排序", { exact: true })).toHaveValue("newest");
-    await expect(card(page, state.materials[1].title)).toBeVisible();
-    expect(state.materialWrites).toBe(0);
-    expect(state.errors).toEqual([]);
-  });
-
-  test("foreign-account drafts and view memory are ignored, and malformed URL options are safe", async ({ page, context }) => {
-    const state = await isolate(page, context);
-    await page.addInitScript(() => {
-      sessionStorage.setItem("toolkit:material-draft:other-account:new", JSON.stringify({ title: "另一个账号的私人笔记" }));
-      sessionStorage.setItem("toolkit:learning-view:other-account", JSON.stringify({ view: { query: "私人搜索" }, scroll: 900 }));
-    });
-    await page.goto("/learning?status=unknown&sort=unknown&utm=test");
-    await expect(page.getByLabel("搜索学习资料", { exact: true })).toHaveValue("");
-    await expect(page.getByLabel("资料排序", { exact: true })).toHaveValue("newest");
-    await expect(page).toHaveURL(/\/learning\?utm=test$/);
-    await page.getByRole("button", { name: "添加资料", exact: true }).click();
-    const dialog = page.getByRole("dialog", { name: "添加资料", exact: true });
-    await expect(dialog.getByLabel("标题")).toHaveValue("");
-    await expect(dialog.getByText(/已恢复/)).toHaveCount(0);
-    expect(state.materialWrites).toBe(0);
-    expect(state.errors).toEqual([]);
-  });
-
-  test("switching accounts cannot restore the previous account's private draft or filters", async ({ page, context }) => {
-    const state = await isolate(page, context);
-    await page.goto("/learning");
-    await page.getByLabel("搜索学习资料", { exact: true }).fill("原账号私密查找");
-    await page.getByRole("button", { name: "添加资料", exact: true }).click();
-    let dialog = page.getByRole("dialog", { name: "添加资料", exact: true });
-    await dialog.getByLabel("标题").fill("原账号私密笔记");
-    await dialog.getByRole("button", { name: "取消", exact: true }).click();
-    await dialog.getByRole("button", { name: "保留草稿并关闭", exact: true }).click();
-    await expect(dialog).not.toBeVisible();
-    state.authUser = { ...user, id: "88888888-8888-4888-8888-888888888888" };
-    await page.goto("/learning");
-    await expect(page.getByLabel("搜索学习资料", { exact: true })).toHaveValue("");
-    await page.getByRole("button", { name: "添加资料", exact: true }).click();
-    dialog = page.getByRole("dialog", { name: "添加资料", exact: true });
-    await expect(dialog.getByLabel("标题")).toHaveValue("");
-    await expect(dialog.getByText(/已恢复/)).toHaveCount(0);
-    expect(await page.evaluate((key) => JSON.parse(sessionStorage.getItem(key)!)?.title, draftKey)).toBe("原账号私密笔记");
-    expect(state.materialWrites).toBe(0);
-    expect(state.errors).toEqual([]);
-  });
-
-  test("small dark editor supports large text, keyboard groups, and backdrop dismissal protection", async ({ page, context }, info) => {
-    const state = await isolate(page, context);
-    await page.setViewportSize({ width: 320, height: 1000 });
-    await page.emulateMedia({ colorScheme: "dark", reducedMotion: "reduce" });
-    await page.goto("/learning");
-    await page.getByRole("button", { name: "添加资料", exact: true }).click();
-    const dialog = page.getByRole("dialog", { name: "添加资料", exact: true });
-    await page.evaluate(() => { document.documentElement.style.fontSize = "200%"; });
-    await dialog.getByLabel("标题").fill("长标题与未保存笔记");
-    await dialog.getByLabel("备注").fill("学习笔记".repeat(25));
-    await dialog.getByRole("button", { name: /更多选项/ }).click();
-    await noOverflow(page);
-    expect(await dialog.locator(".modal-panel").evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
-    await expect(dialog.getByRole("group", { name: "学习状态", exact: true })).toBeVisible();
-    await dialog.locator(".modal-panel").evaluate((node) => node.scrollTo(0, 0));
-    await page.screenshot({ path: info.outputPath("learning-editor-large-dark.png") });
-    await dialog.evaluate((node) => node.dispatchEvent(new MouseEvent("click", { bubbles: true })));
-    await expect(dialog.getByRole("alert", { name: "未保存的修改" })).toBeVisible();
-    expect(await dialog.locator(".modal-panel").evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
-    await dialog.locator(".modal-panel").evaluate((node) => node.scrollTo(0, 0));
-    await page.screenshot({ path: info.outputPath("learning-unsaved-large-dark.png") });
-    await dialog.getByRole("button", { name: "继续编辑", exact: true }).click();
-    await expect(dialog.getByLabel("标题")).toHaveValue("长标题与未保存笔记");
-    expect(state.materialWrites).toBe(0);
-    expect(state.errors).toEqual([]);
-  });
-});
-
-test("material save failure stays inside the dialog and retains the draft", async ({ page, context }) => {
-  const state = await isolate(page, context);
-  state.failMaterial = true;
-  await page.goto("/learning");
-  await page.getByRole("button", { name: "添加资料", exact: true }).click();
-  const dialog = page.getByRole("dialog", { name: "添加资料" });
-  await dialog.getByLabel("标题").fill("保存失败后仍保留这段内容");
-  await dialog.getByRole("button", { name: "添加", exact: true }).click();
-  await expect(dialog.getByRole("alert")).toContainText("模拟保存失败");
-  await expect(dialog.getByLabel("标题")).toHaveValue("保存失败后仍保留这段内容");
-  state.failMaterial = false;
-  await dialog.getByRole("button", { name: "添加", exact: true }).click();
-  await expect(dialog).not.toBeVisible();
-  expect(state.materialWrites).toBe(2);
-  expect(state.materialIds[0]).toBe(state.materialIds[1]);
-});
-
-test("material creation gets a fresh draft when reopened during the exit transition", async ({ page, context }) => {
-  const state = await isolate(page, context);
-  await page.goto("/learning");
-  await page.getByRole("button", { name: "添加资料", exact: true }).click();
-  const dialog = page.getByRole("dialog", { name: "添加资料" });
-  await dialog.getByLabel("标题").fill("第一份资料");
-  // Reopen as soon as the native dialog closes, before its exit cleanup finishes.
-  await dialog.evaluate((element) => {
-    element.addEventListener("close", () => {
-      const button = Array.from(document.querySelectorAll<HTMLButtonElement>("main button")).find((item) => item.textContent?.trim() === "添加资料");
-      button?.click();
-    }, { once: true });
-  });
-  await dialog.getByRole("button", { name: "添加", exact: true }).click();
-  await expect(dialog.getByLabel("标题")).toHaveValue("");
-  await dialog.getByLabel("标题").fill("第二份资料");
-  await dialog.getByRole("button", { name: "添加", exact: true }).click();
-  await expect(dialog).not.toBeVisible();
-  expect(state.materialIds).toHaveLength(2);
-  expect(state.materialIds[0]).not.toBe(state.materialIds[1]);
-});
-
 test("mobile layout accommodates enlarged text without horizontal scrolling", async ({ page, context }) => {
   await isolate(page, context);
   await page.setViewportSize({ width: 375, height: 1000 });
-  for (const path of ["/", "/todos", "/learning", "/settings"]) {
+  for (const path of ["/", "/todos", "/week", "/review"]) {
     await page.goto(path);
     await expect(page.locator("#main-content h1")).toBeVisible();
     await page.evaluate(() => { document.documentElement.style.fontSize = "200%"; });
@@ -2117,27 +1656,148 @@ test("mobile layout accommodates enlarged text without horizontal scrolling", as
   }
 });
 
-test("report clipboard feedback and persistent AI sheet remain usable", async ({ page, context }, info) => {
-  const state = await isolate(page, context);
-  await page.addInitScript(() => {
-    let calls = 0;
-    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async () => { if (++calls === 1) throw new Error("preview clipboard failure"); } } });
+test.describe("connected action workspace", () => {
+  test("retired pages redirect and removed APIs cannot call external services", async ({ page, context }) => {
+    const state = await isolate(page, context);
+    for (const [old, target, heading] of [["/learning", "/week", "一周计划"], ["/github?id=old-report", "/review", "行动回顾"], ["/settings", "/", "今天，专注重要的事。"]]) {
+      await page.goto(old);
+      await expect(page).toHaveURL(new RegExp(target === "/" ? "/$" : target + "$"));
+      await expect(page.getByRole("heading", { name: heading, level: 1, exact: true })).toBeVisible();
+      await expect(page.getByRole("navigation", { name: "主要导航" }).getByRole("link")).toHaveCount(4);
+      await expect(page.getByRole("link", { name: /^(AI 设置|项目分析|学习资料)$/ })).toHaveCount(0);
+    }
+    for (const api of ["/api/analyze", "/api/analyze/chat", "/api/ai/status"]) expect((await page.request.post(api, { data: {} })).status()).toBe(404);
+    expect(state.errors).toEqual([]);
   });
-  await page.goto("/github");
-  await page.getByRole("button", { name: /example\/toolkit/ }).click();
-  await page.getByRole("button", { name: "复制", exact: true }).click();
-  await expect(page.getByRole("status").filter({ hasText: "复制失败" })).toBeVisible();
-  await page.getByRole("button", { name: "复制", exact: true }).click();
-  await expect(page.getByRole("button", { name: "已复制" })).toBeVisible();
-  await page.getByRole("button", { name: "问 AI", exact: true }).click();
-  const dialog = page.getByRole("dialog");
-  await expect(dialog.getByLabel("向 AI 追问")).toBeVisible();
-  await dialog.getByLabel("向 AI 追问").fill("关闭后保留的草稿");
-  await page.keyboard.press("Escape");
-  await page.getByRole("button", { name: "问 AI", exact: true }).click();
-  await expect(dialog.getByLabel("向 AI 追问")).toHaveValue("关闭后保留的草稿");
-  await page.screenshot({ path: info.outputPath("report-chat.png"), fullPage: true });
-  expect(state.errors).toEqual([]);
+
+  test("planning, daily execution and review share one record", async ({ page, context }) => {
+    const state = await isolate(page, context);
+    await page.goto("/week");
+    const chosen = shiftDate(today, -1);
+    await page.getByLabel("跳转计划日期").fill(chosen);
+    await page.getByRole("button", { name: "添加任务", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "添加任务", exact: true });
+    await expect(dialog.getByLabel("任务日期")).toHaveValue(chosen);
+    await dialog.getByLabel("任务内容", { exact: true }).fill("把想法做成可验证的小任务");
+    await dialog.getByLabel("计划时间", { exact: true }).fill("10:15");
+    await dialog.getByRole("button", { name: "添加", exact: true }).click();
+    await expect(dialog).not.toBeVisible();
+    expect(state.todoCreates).toHaveLength(1);
+    expect(state.todoCreates[0]).toMatchObject({ p_due_date: chosen, p_time: "10:15", p_repeat: "none" });
+    await page.getByRole("link", { name: "查看并编辑：把想法做成可验证的小任务", exact: true }).click();
+    const row = todoRow(page, "把想法做成可验证的小任务");
+    await expect(row).toBeVisible();
+    await expect(page.getByLabel("选择任务日期")).toHaveValue(chosen);
+    await row.getByRole("button", { name: "标记完成", exact: true }).click();
+    await expect.poll(() => state.todos.find((task) => task.text === "把想法做成可验证的小任务")?.done).toBe(true);
+    await page.getByRole("navigation", { name: "主要导航" }).getByRole("link", { name: "行动回顾", exact: true }).click();
+    await page.getByLabel("搜索回顾任务").fill("可验证");
+    await expect(page.locator("[data-workspace-task]").filter({ hasText: "把想法做成可验证的小任务" })).toContainText("已完成");
+    await expect(page.getByRole("status").filter({ hasText: "显示 1 /" })).toBeVisible();
+    expect(state.errors).toEqual([]);
+  });
+
+  test("weekly completion keeps rows stable, rolls back a failed write and retries", async ({ page, context }) => {
+    const state = await isolate(page, context);
+    const first = state.todos[0];
+    const slow = gate();
+    state.todoPatchPlans.set(first.id, [{ wait: slow.wait, outcome: "error" }]);
+    try {
+      await page.goto("/week");
+      const row = page.locator('[data-workspace-task="' + first.id + '"]');
+      await expect(row).toBeVisible();
+      const node = await row.elementHandle();
+      await page.getByRole("button", { name: "完成任务：每天读书", exact: true }).click();
+      await expect(page.getByRole("button", { name: "恢复任务：每天读书", exact: true })).toHaveAttribute("aria-pressed", "true");
+      await expect(row).toHaveAttribute("aria-busy", "true");
+      expect(await node?.evaluate((element) => element.isConnected)).toBe(true);
+      slow.release();
+      await expect(row.getByRole("alert")).toContainText("已恢复原状态");
+      await page.getByRole("button", { name: "完成任务：每天读书", exact: true }).click();
+      await expect(row).toHaveAttribute("aria-busy", "false");
+      expect(state.todos[0].done).toBe(true);
+      expect(await node?.evaluate((element) => element.isConnected)).toBe(true);
+      expect(state.errors).toEqual([]);
+    } finally { slow.release(); }
+  });
+
+  test("review excludes skips and future dates, switches ranges and filters without altering totals", async ({ page, context }) => {
+    const state = await isolate(page, context);
+    state.todos.splice(0, state.todos.length,
+      todoFixture("77777777-7777-4777-8777-000000000001", "完成的过去计划", { due_date: shiftDate(today, -2), done: true }),
+      todoFixture("77777777-7777-4777-8777-000000000002", "待完成的过去计划", { due_date: shiftDate(today, -1) }),
+      todoFixture("77777777-7777-4777-8777-000000000003", "跳过不计入", { skipped: true }),
+      todoFixture("77777777-7777-4777-8777-000000000004", "未来不计入", { due_date: shiftDate(today, 1) }),
+      todoFixture("77777777-7777-4777-8777-000000000005", "较早的记录", { due_date: shiftDate(today, -15), done: true }));
+    await page.goto("/review");
+    const summary = page.getByRole("region", { name: "回顾摘要" });
+    await expect(summary.getByText("完成比例", { exact: true }).locator("..")).toContainText("50%");
+    await page.getByRole("group", { name: "回顾任务状态" }).getByRole("button", { name: "已完成", exact: true }).click();
+    await expect(page.getByRole("status").filter({ hasText: "显示 1 / 2 项" })).toBeVisible();
+    await expect(summary.getByText("完成比例", { exact: true }).locator("..")).toContainText("50%");
+    await page.getByRole("button", { name: "近 30 天", exact: true }).click();
+    await expect(page.getByRole("status").filter({ hasText: "显示 2 / 3 项" })).toBeVisible();
+    await expect(page.getByText("未来不计入", { exact: true })).toHaveCount(0);
+    expect(state.errors).toEqual([]);
+  });
+
+  test("a later-page failure never displays partial statistics and retry loads all 503 records", async ({ page, context }) => {
+    const state = await isolate(page, context);
+    state.todos.splice(0);
+    for (let index = 0; index < 503; index++) state.todos.push(todoFixture("77777777-7777-4777-8777-" + String(index).padStart(12, "0"), "批量记录 " + index));
+    state.readPlans.set("todos", [{}, { fail: true }]);
+    await page.goto("/review");
+    await expect(page.locator("#main-content").getByRole("alert")).toContainText("数据未加载完成");
+    await expect(page.getByRole("region", { name: "回顾摘要" })).toHaveCount(0);
+    await page.getByRole("button", { name: "重试加载", exact: true }).click();
+    await expect(page.getByRole("status").filter({ hasText: "显示 503 / 503 项" })).toBeVisible();
+    expect(state.readCounts.todos).toBe(4);
+    expect(state.errors).toEqual([]);
+  });
+
+  test("failed refresh preserves existing rows and clearly marks stale results", async ({ page, context }) => {
+    const state = await isolate(page, context);
+    await page.goto("/week");
+    const row = page.locator('[data-workspace-task="' + state.todos[0].id + '"]');
+    await expect(row).toBeVisible();
+    const node = await row.elementHandle();
+    state.readPlans.set("todos", [{ fail: true }]);
+    await page.getByRole("button", { name: "刷新", exact: true }).click();
+    await expect(page.locator("#main-content").getByRole("alert")).toContainText("上次加载的结果");
+    expect(await node?.evaluate((element) => element.isConnected)).toBe(true);
+    await page.getByRole("button", { name: "重试加载", exact: true }).click();
+    await expect(page.locator("#main-content").getByRole("alert")).toHaveCount(0);
+    expect(state.errors).toEqual([]);
+  });
+
+  test("empty workspace has a starting point and never invents a completion percentage", async ({ page, context }) => {
+    const state = await isolate(page, context);
+    state.todos.splice(0);
+    await page.goto("/");
+    await expect(page.getByRole("heading", { name: "从第一条待办开始" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "今日进度", exact: true })).toContainText("尚未安排");
+    await page.getByRole("link", { name: "创建第一条待办", exact: true }).click();
+    await expect(page.getByRole("button", { name: "添加任务", exact: true })).toBeEnabled();
+    await page.getByRole("navigation", { name: "主要导航" }).getByRole("link", { name: "行动回顾", exact: true }).click();
+    await expect(page.getByText("这个时间段还没有任务记录", { exact: true })).toBeVisible();
+    await expect(page.getByText("完成比例", { exact: true }).locator("..")).toContainText("—");
+    expect(state.errors).toEqual([]);
+  });
+
+  for (const width of [320, 375]) test("new screens support dark mode and 200% text at " + width, async ({ page, context }, info) => {
+    await page.setViewportSize({ width, height: 900 });
+    const state = await isolate(page, context);
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.addInitScript(() => localStorage.setItem("toolkit-theme", "dark"));
+    for (const path of ["/", "/week", "/review"]) {
+      await page.goto(path);
+      await expect(page.getByText("每天读书", { exact: true }).first()).toBeVisible();
+      await page.evaluate(() => { document.documentElement.style.fontSize = "200%"; });
+      await noOverflow(page);
+      await page.screenshot({ path: info.outputPath((path.slice(1) || "overview") + "-" + width + ".png"), fullPage: true });
+    }
+    expect(state.errors).toEqual([]);
+  });
 });
 
 test("login, registration and recovery pages stay accessible without a session", async ({ page, context }, info) => {

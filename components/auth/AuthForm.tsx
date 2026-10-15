@@ -98,7 +98,7 @@ export function AuthForm({ mode }: AuthFormProps) {
             {isLogin ? "欢迎回到 Toolkit" : "开启你的个人工作区"}
           </h1>
           <p className="mt-3 text-sm leading-6 text-[color:var(--text-muted)]">
-            {isLogin ? "学习、计划、探索。从这里继续。" : "把资料、待办和项目灵感，放在一个地方。"}
+            {isLogin ? "接着完成今天的事，再从回顾中调整下一步。" : "安排这一周，完成今天的事，慢慢找到自己的节奏。"}
           </p>
         </div>
 

@@ -6,9 +6,9 @@ import { AuthProvider } from "@/components/auth/AuthProvider";
 import { readRuntimeEnv } from "@/lib/env";
 
 export const metadata: Metadata = {
-  title: "Toolkit · 个人效能空间",
+  title: "Toolkit · 个人行动工作台",
   description:
-    "整理学习资料、安排每日待办、理解 GitHub 项目。一个专注、清晰的个人工作区。",
+    "安排一周计划，完成每日待办，回顾并调整下一步。让计划与行动连在一起。",
 };
 
 export const viewport: Viewport = {

@@ -9,7 +9,7 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { Modal } from "@/components/ui/Modal";
 import { Spinner } from "@/components/ui/Spinner";
 import { DateNav } from "@/components/todos/DateNav";
-import { TodoEditor } from "@/components/todos/TodoEditor";
+import { TodoEditor, type TodoEditorHandle } from "@/components/todos/TodoEditor";
 import { TodoForm } from "@/components/todos/TodoForm";
 import { TodoItem } from "@/components/todos/TodoItem";
 import { TodoSearch } from "@/components/todos/TodoSearch";
@@ -20,6 +20,8 @@ import { createClient } from "@/lib/supabase/client";
 import { toTodo, type TodoRow } from "@/lib/supabase/mappers";
 import { firstRepeatDate, shiftDate, todayKey, todoErrorMessage } from "@/lib/todo-dates";
 import { todoMatchesQuery } from "@/lib/todo-search";
+import { createTodo } from "@/lib/todo-data";
+import Link from "next/link";
 import type { Todo, TodoScope } from "@/lib/types";
 
 export default function TodosPage() {
@@ -40,6 +42,15 @@ export default function TodosPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [undoTodo, setUndoTodo] = useState<{ id: string; text: string } | null>(null);
   const [editing, setEditing] = useState<Todo | null>(null);
+  const editorRef = useRef<TodoEditorHandle>(null);
+  const closeEditor = () => {
+    setEditing(null);
+    // A saved title/date may remove the trigger from the current search/list.
+    // Let the dialog restore its trigger first; use search only if it vanished.
+    window.requestAnimationFrame(() => {
+      if (!document.activeElement || document.activeElement === document.body) searchInput.current?.focus({ preventScroll: true });
+    });
+  };
   const [deleting, setDeleting] = useState<Todo | null>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const requestRef = useRef(0);
@@ -161,12 +172,7 @@ export default function TodosPage() {
     // Another date's tasks are not loaded here; do not reuse today's ordering.
     const position = firstRepeatDate(todo.dueDate, todo.repeat) !== date ? Date.now()
       : undone.length ? Math.max(...undone.map((item) => item.position)) + 1024 : 1024;
-    const { data: created, error: createError } = await createClient().rpc("todo_create", {
-      p_id: todo.id, p_text: todo.text, p_priority: todo.priority, p_due_date: todo.dueDate,
-      p_time: todo.scheduledTime ?? null, p_repeat: todo.repeat, p_position: position,
-    }).single();
-    if (createError) throw createError;
-    if (!created || typeof created !== "object" || !("id" in created) || created.id !== todo.id) throw new Error("未收到任务创建确认，输入已保留，请重试。");
+    await createTodo(todo, position);
   }, firstRepeatDate(todo.dueDate, todo.repeat) !== date
     ? `任务已添加，安排在 ${firstRepeatDate(todo.dueDate, todo.repeat)}。可切换日期查看。`
     : todo.repeat === "weekdays" ? "任务已添加；周一至周五出现，周末自动顺延。" : "任务已添加。", true);
@@ -224,9 +230,12 @@ export default function TodosPage() {
     });
     if (updateError) throw updateError;
   };
-  const saveTodo = async (todo: Todo, scope: TodoScope) => runMutation(
-    () => editRequest(todo, scope), scope === "future" ? "这次及以后的计划已更新。" : "这次任务已保存。",
-  );
+  const saveTodo = async (todo: Todo, scope: TodoScope) => {
+    const startsSchedule = !todo.seriesId || (editing?.repeat === "none" && todo.repeat !== "none");
+    const savedDate = startsSchedule ? firstRepeatDate(todo.dueDate, todo.repeat) : todo.dueDate;
+    return runMutation(() => editRequest(todo, scope), scope === "future" ? "这次及以后的计划已更新。"
+      : savedDate !== date ? `任务已保存，安排在 ${savedDate}。可切换日期查看。` : "这次任务已保存。");
+  };
   const remove = async (todo: Todo, scope: TodoScope) => {
     const removed = await runMutation(async () => {
       const { error: removeError } = await createClient().rpc("todo_remove", { p_id: todo.id, p_scope: scope });
@@ -290,6 +299,7 @@ export default function TodosPage() {
         undoLabel={undoTodo ? `撤销完成：${undoTodo.text}` : undefined}
         onUndo={undoTodo ? () => void toggle(undoTodo.id, true) : undefined} />}
       <div className="space-y-4 pb-16">
+        <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs"><Link href={`/week?date=${date}`} className="quiet-link inline-flex min-h-11 items-center rounded-lg focus-ring">在周计划中查看这一天 →</Link><Link href="/review" className="quiet-link inline-flex min-h-11 items-center rounded-lg focus-ring">查看最近行动回顾 →</Link></div>
         <DateNav value={date} onChange={setDate} disabled={!viewReady || busy || pendingIds.size > 0} />
         <TodoSearch query={query} onChange={setQuery} inputRef={searchInput} includeOverdue={date === today} matching={matches} total={scopeTotal} loading={loading} />
         <Card className="!p-4">
@@ -316,8 +326,8 @@ export default function TodosPage() {
           </>
         )}
       </div>
-      <Modal open={Boolean(editing)} onClose={() => { if (!busy) setEditing(null); }} title="编辑任务">
-        {editing && <TodoEditor todo={editing} error={error} onSave={saveTodo} onCancel={() => { if (!busy) setEditing(null); }} />}
+      <Modal open={Boolean(editing)} onClose={() => editorRef.current?.requestClose()} title="编辑任务" className="task-dialog">
+        {editing && <TodoEditor key={editing.id} ref={editorRef} todo={editing} error={error} onSave={saveTodo} onCancel={closeEditor} />}
       </Modal>
       <Modal open={Boolean(deleting)} onClose={() => { if (!busy) setDeleting(null); }} title={deleting?.seriesId ? "处理重复任务" : "删除任务"}>
         {deleting && <div className="space-y-4">
