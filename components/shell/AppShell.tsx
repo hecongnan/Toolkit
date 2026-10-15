@@ -8,9 +8,10 @@ import { Sidebar } from "./Sidebar";
 import { Modal } from "@/components/ui/Modal";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { safeAuthDestination } from "@/lib/auth-errors";
+import { ActiveTimeBar, TimeProvider } from "@/components/time/TimeProvider";
 
 const AUTH_ROUTES = ["/login", "/register", "/forgot-password", "/update-password"];
-const PROTECTED_ROUTES = ["/", "/todos", "/week", "/review"];
+const PROTECTED_ROUTES = ["/", "/todos", "/week", "/review", "/time"];
 type Theme = "dark" | "light";
 
 export function AppShell({ children }: { children: ReactNode }) {
@@ -107,7 +108,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   }
 
   return (
-    <div className="min-h-dvh md:flex">
+    <TimeProvider key={user?.id} userId={user?.id ?? ""}><div className="min-h-dvh md:flex">
       <a href="#main-content" className="skip-link focus-ring">跳到主要内容</a>
       <Modal open={open} onClose={() => setOpen(false)} title="工作区导航" presentation="drawer">
         <Sidebar onNavigate={() => setOpen(false)} theme={theme} onToggleTheme={toggleTheme} />
@@ -121,12 +122,13 @@ export function AppShell({ children }: { children: ReactNode }) {
             <button type="button" aria-label="打开导航" aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(true)} className="button icon-button !h-[44px] !w-[44px] focus-ring md:hidden"><Menu size={20} /></button>
             <span className="hidden text-xs text-[color:var(--text-muted)] sm:inline">工作区</span>
             <ChevronRight size={12} className="hidden text-[color:var(--text-faint)] sm:block" aria-hidden />
-            <span className="truncate text-sm font-medium">{pathname === "/" ? "概览" : pathname?.startsWith("/todos") ? "每日待办" : pathname?.startsWith("/week") ? "一周计划" : pathname?.startsWith("/review") ? "行动回顾" : "Toolkit"}</span>
+            <span className="truncate text-sm font-medium">{pathname === "/" ? "概览" : pathname?.startsWith("/todos") ? "每日待办" : pathname?.startsWith("/week") ? "一周计划" : pathname?.startsWith("/review") ? "行动回顾" : pathname?.startsWith("/time") ? "时间记录" : "Toolkit"}</span>
           </div>
           <div className="flex items-center gap-3">
             <button type="button" aria-label={theme === "dark" ? "切换到日间样式" : "切换到夜间样式"} onClick={toggleTheme} className="button icon-button !h-[44px] !w-[44px] focus-ring md:hidden">{theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}</button>
           </div>
         </header>
+        <ActiveTimeBar />
         <main key={user?.id} id="main-content" tabIndex={-1} className="outline-none">
         <div className="page-width px-4 pb-12 pt-7 sm:px-8 sm:pt-9 lg:px-10 lg:pt-11">
           {warning && <div role="status" className="mb-4 flex flex-wrap items-center gap-2 rounded-xl bg-[var(--control-bg)] p-3 text-sm text-[color:var(--text-secondary)]">
@@ -136,6 +138,6 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
         </main>
       </div>
-    </div>
+    </div></TimeProvider>
   );
 }

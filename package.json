@@ -9,6 +9,7 @@
     "start": "next start",
     "lint": "next lint",
     "test:todos": "node tests/todos.test.cjs",
+    "test:time": "node tests/time.test.cjs",
     "test:ui": "playwright test"
   },
   "dependencies": {

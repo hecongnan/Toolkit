@@ -13,6 +13,7 @@ import { useTaskRange, useToday } from "@/components/workspace/useTaskRange";
 import { shiftDate } from "@/lib/todo-dates";
 import { dateLabel, dateRange, taskSummary } from "@/lib/task-workspace";
 import { todoMatchesQuery } from "@/lib/todo-search";
+import { TimeReview } from "@/components/time/TimeReview";
 
 export default function ReviewPage() {
   const today = useToday();
@@ -33,6 +34,7 @@ export default function ReviewPage() {
       <div role="group" aria-label="回顾时间范围" className="surface grid w-full min-w-0 grid-cols-2 gap-1 p-1 sm:w-auto">{[7, 30].map((days) => <Button key={days} className="min-w-0 whitespace-normal max-sm:px-2" variant={duration === days ? "primary" : "ghost"} aria-pressed={duration === days} onClick={() => setDuration(days)}>近 {days} 天</Button>)}</div>
       <p className="text-xs tabular-nums text-[color:var(--text-muted)]">{start} — {today}</p><Button variant="ghost" disabled={data.loading} onClick={() => void data.load()}><RefreshCw size={15} />刷新回顾</Button>
     </div>
+    <TimeReview start={start} end={today} />
     <RangeFeedback {...data} onRetry={() => void data.load()} />
     {data.hasData && <>
       <section aria-label="回顾摘要" className="mb-5 grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 7rem), 1fr))" }}>

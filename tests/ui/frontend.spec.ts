@@ -1,5 +1,6 @@
 import { test, expect, type Page, type BrowserContext, type Locator } from "@playwright/test";
 import { shiftDate } from "../../lib/todo-dates";
+import { recordedSeconds,type TimeRecord } from "../../lib/time-tracking";
 
 const host = "frontend-preview.supabase.co";
 const userId = "11111111-1111-4111-8111-111111111111";
@@ -54,6 +55,9 @@ async function isolate(page: Page, context: BrowserContext, authenticated = true
     readPlans: new Map<ReadSection, ReadPlan[]>(),
     readCounts: { todos: 0 },
     failRecurrence: false,
+    timeRecords: [] as (TimeRecord & {user_id:string})[], timeNow: Date.now(), timeMissing: false,
+    timePlans: [] as (TodoPatchPlan & {lostResponse?:boolean})[], timeReadPlans: [] as ReadPlan[], timeReads: 0,
+    timeWrites: [] as {name:string;payload:Record<string,unknown>}[],
   };
   await page.route("**/*", async (route) => {
     const request = route.request();
@@ -82,6 +86,58 @@ async function isolate(page: Page, context: BrowserContext, authenticated = true
     if (url.pathname === "/auth/v1/logout") { state.authenticated = false; return respond({}); }
     if (url.pathname === "/auth/v1/token") { state.authenticated = true; return respond(previewSession(state.authUser)); }
     if (url.pathname.startsWith("/rest/v1/rpc/")) {
+      const name=url.pathname.split("/").pop()!;
+      if(name.startsWith("time_")){
+        if(state.timeMissing)return respond({message:"function missing",code:"PGRST202"},404);
+        const payload=request.postDataJSON()??{};
+        state.timeNow=Math.max(state.timeNow,Date.now())+1;
+        const now=new Date(state.timeNow).toISOString();
+        const active=()=>state.timeRecords.find((row)=>row.user_id===state.authUser.id&&!row.finished_at)??null;
+        const snapshot=(record:TimeRecord|null)=>respond({record,server_now:now});
+        if(name==="time_active")return snapshot(active());
+        state.timeWrites.push({name,payload});
+        const plan=state.timePlans.shift();
+        if(plan?.wait)await plan.wait;
+        if(plan?.outcome==="error")return respond({message:"模拟时间保存失败，请重试",code:"P0001"},400);
+        if(plan?.outcome==="empty")return respond(null);
+        let row=state.timeRecords.find((item)=>item.id===payload.p_id&&item.user_id===state.authUser.id);
+        const task=state.todos.find((item)=>item.id===payload.p_task_id);
+        if(name==="time_start"){
+          if(row)return snapshot(row);
+          if(active())return respond({message:"已有计时，请先结束当前计时",code:"P0001"},400);
+          row={id:payload.p_id,user_id:state.authUser.id,title:payload.p_title,category:payload.p_category,task_id:task?.id??null,task_title:task?.text??null,source:"timer",started_at:now,ended_at:null,running_since:now,finished_at:null,segments:[],version:1};
+          state.timeRecords.push(row);
+          if(plan?.lostResponse)return respond({message:"模拟响应丢失",code:"temporary_error"},502);
+          return snapshot(row);
+        }
+        if(name==="time_control"){
+          if(!row||row.version!==payload.p_version)return respond({message:"计时已在其他页面更新，请同步最新状态",code:"P0001"},400);
+          if(payload.p_action==="discard"){state.timeRecords.splice(state.timeRecords.indexOf(row),1);return snapshot(null);}
+          if(["pause","finish"].includes(payload.p_action)&&row.running_since){row.segments.push({start:row.running_since,end:now});row.ended_at=now;row.running_since=null;}
+          if(payload.p_action==="resume")row.running_since=now;
+          if(payload.p_action==="finish")row.finished_at=now;
+          row.version++;return snapshot(row);
+        }
+        if(name==="time_save_manual"){
+          if(row&&payload.p_version===null){
+            if(row.title!==payload.p_title.trim()||row.category!==payload.p_category||row.task_id!==payload.p_task_id||Date.parse(row.started_at)!==Date.parse(payload.p_start)||Date.parse(row.ended_at!)!==Date.parse(payload.p_end))return respond({message:"这条记录可能已保存，请先刷新记录核对，再编辑已有记录",code:"P0001"},400);
+            return respond(row);
+          }
+          if(row&&row.version!==payload.p_version)return respond({message:"记录已更新",code:"P0001"},400);
+          if(payload.p_start){
+            const start=Date.parse(payload.p_start),end=Date.parse(payload.p_end);
+            if(state.timeRecords.some((other)=>other.id!==payload.p_id&&other.user_id===state.authUser.id&&(other.segments.some((segment)=>Date.parse(segment.start)<end&&Date.parse(segment.end)>start)||(other.running_since&&Date.parse(other.running_since)<end&&state.timeNow>start))))return respond({message:"这个时段与已有记录或当前计时重叠，请调整起止时间",code:"P0001"},400);
+          }
+          if(!row){row={id:payload.p_id,user_id:state.authUser.id,title:payload.p_title,category:payload.p_category,task_id:task?.id??null,task_title:task?.text??null,source:"manual",started_at:payload.p_start,ended_at:payload.p_end,segments:[{start:payload.p_start,end:payload.p_end}],running_since:null,finished_at:now,version:1};state.timeRecords.push(row);}
+          else{row.title=payload.p_title;row.category=payload.p_category;row.task_id=payload.p_task_id;if(payload.p_start){row.started_at=payload.p_start;row.ended_at=payload.p_end;row.segments=[{start:payload.p_start,end:payload.p_end}];row.source="manual";}row.version++;}
+          return respond(row);
+        }
+        if(name==="time_delete"){
+          if(!row||row.version!==payload.p_version)return respond({message:"记录已改变或不存在",code:"P0001"},400);
+          state.timeRecords.splice(state.timeRecords.indexOf(row),1);return respond(row.id);
+        }
+        throw new Error("Unhandled time RPC: "+name);
+      }
       if (url.pathname.endsWith("/todo_create")) {
         const payload = request.postDataJSON();
         state.todoCreates.push(payload);
@@ -129,6 +185,17 @@ async function isolate(page: Page, context: BrowserContext, authenticated = true
       }
       return respond(null);
     }
+    if(url.pathname==="/rest/v1/time_records"){
+      state.timeReads++;
+      if(state.timeMissing)return respond({message:"table missing",code:"PGRST205"},404);
+      const plan=state.timeReadPlans.shift();
+      const from=url.searchParams.get("ended_at")?.slice(3),to=url.searchParams.get("started_at")?.slice(3);
+      const rows=state.timeRecords.filter((row)=>row.finished_at&&row.user_id===state.authUser.id&&(!from||Date.parse(row.ended_at!)>Date.parse(from))&&(!to||Date.parse(row.started_at)<Date.parse(to))).sort((a,b)=>b.started_at.localeCompare(a.started_at)||a.id.localeCompare(b.id));
+      const offset=Number(url.searchParams.get("offset")??0),limit=Number(url.searchParams.get("limit")??rows.length);
+      const copy=JSON.parse(JSON.stringify(rows.slice(offset,offset+limit)));
+      if(plan?.wait)await plan.wait;if(plan?.fail)return respond({message:"模拟时间加载失败",code:"P0001"},400);
+      return respond(copy,200,{"content-range":`${offset}-${Math.max(offset+copy.length-1,offset)}/${rows.length}`});
+    }
     if (url.pathname === "/rest/v1/todos") {
       if (request.method() === "PATCH") {
         const id = url.searchParams.get("id")?.replace(/^eq\./, "") ?? "";
@@ -147,6 +214,7 @@ async function isolate(page: Page, context: BrowserContext, authenticated = true
       const due = url.searchParams.get("due_date");
       if (due?.startsWith("eq.")) state.todoReadDates.push(due.slice(3));
       const filtered = todos.filter((row) =>
+        (!url.searchParams.has("id")||row.id===url.searchParams.get("id")?.slice(3))&&
         url.searchParams.getAll("due_date").every((value) =>
           value.startsWith("eq.") ? row.due_date === value.slice(3)
             : value.startsWith("gte.") ? row.due_date >= value.slice(4)
@@ -162,7 +230,7 @@ async function isolate(page: Page, context: BrowserContext, authenticated = true
       // Snapshot before waiting, as a real in-flight read may return stale data.
       const data = filtered.slice(offset, offset + limit).map((row) => ({ ...row }));
       if (state.holdTodoReads) await state.holdTodoReads;
-      return plannedRead("todos", data, { "content-range": `${offset}-${Math.max(offset + data.length - 1, offset)}/${filtered.length}` });
+      return plannedRead("todos", request.headers().accept?.includes("application/vnd.pgrst.object+json")?data[0]??null:data, { "content-range": `${offset}-${Math.max(offset + data.length - 1, offset)}/${filtered.length}` });
     }
     errors.push(`Unhandled preview request: ${url.pathname}`);
     return respond({ message: "Unhandled preview request" }, 400);
@@ -171,7 +239,11 @@ async function isolate(page: Page, context: BrowserContext, authenticated = true
 }
 
 async function noOverflow(page: Page) {
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  const overflow=await page.evaluate(() => {
+    if(document.documentElement.scrollWidth<=window.innerWidth)return [];
+    return Array.from(document.querySelectorAll<HTMLElement>("#main-content *")).filter((node)=>node.getBoundingClientRect().right>window.innerWidth+1).slice(0,8).map((node)=>({tag:node.tagName,cls:node.className,text:node.textContent?.slice(0,55),right:node.getBoundingClientRect().right}));
+  });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),JSON.stringify(overflow)).toBe(true);
 }
 
 function todoRow(page: Page, text: string) {
@@ -580,6 +652,7 @@ for (const mode of [
       ["/todos", "每日待办", "每天读书"],
       ["/week", "一周计划", "本周"],
       ["/review", "行动回顾", "每天的计划与完成情况"],
+      ["/time", "时间记录", "开始记录一段投入"],
     ]) {
       await page.goto(path);
       await expect(page.getByRole("heading", { level: 1, name: title })).toBeVisible();
@@ -1663,7 +1736,7 @@ test.describe("connected action workspace", () => {
       await page.goto(old);
       await expect(page).toHaveURL(new RegExp(target === "/" ? "/$" : target + "$"));
       await expect(page.getByRole("heading", { name: heading, level: 1, exact: true })).toBeVisible();
-      await expect(page.getByRole("navigation", { name: "主要导航" }).getByRole("link")).toHaveCount(4);
+      await expect(page.getByRole("navigation", { name: "主要导航" }).getByRole("link")).toHaveCount(5);
       await expect(page.getByRole("link", { name: /^(AI 设置|项目分析|学习资料)$/ })).toHaveCount(0);
     }
     for (const api of ["/api/analyze", "/api/analyze/chat", "/api/ai/status"]) expect((await page.request.post(api, { data: {} })).status()).toBe(404);
@@ -1797,6 +1870,139 @@ test.describe("connected action workspace", () => {
       await page.screenshot({ path: info.outputPath((path.slice(1) || "overview") + "-" + width + ".png"), fullPage: true });
     }
     expect(state.errors).toEqual([]);
+  });
+});
+
+function timeFixture(id:string,category:TimeRecord["category"],date:string,start:string,end:string):TimeRecord&{user_id:string}{
+  return{id,user_id:userId,title:category==="study"?"阅读文档":"实际工作",category,task_id:null,task_title:null,source:"manual",started_at:`${date}T${start}:00+08:00`,ended_at:`${date}T${end}:00+08:00`,segments:[{start:`${date}T${start}:00+08:00`,end:`${date}T${end}:00+08:00`}],running_since:null,finished_at:timestamp,version:1};
+}
+async function fillManual(dialog:Locator,title:string,date=shiftDate(today,-1)){
+  await dialog.getByLabel("记录内容",{exact:true}).fill(title);
+  await dialog.getByLabel("开始日期",{exact:true}).fill(date);await dialog.getByLabel("开始时间",{exact:true}).fill("09:00");
+  await dialog.getByLabel("结束日期",{exact:true}).fill(date);await dialog.getByLabel("结束时间",{exact:true}).fill("09:30");
+}
+
+test.describe("time tracking and review pie",()=>{
+  test("a lost start response reconciles the timer and a later start uses a fresh id",async({page,context})=>{
+    const state=await isolate(page,context);state.timePlans.push({lostResponse:true});
+    await page.goto("/time");await page.getByLabel("正在做什么").fill("响应丢失仍保留计时");
+    await page.getByRole("button",{name:"开始计时",exact:true}).click();
+    await expect(page.getByRole("button",{name:"暂停计时",exact:true})).toBeEnabled();
+    await expect(page.locator("#main-content").getByRole("alert")).toContainText("已尝试同步");
+    await page.getByRole("button",{name:"结束并保存",exact:true}).click();
+    await expect(page.getByRole("button",{name:"开始计时",exact:true})).toBeEnabled();
+    await page.getByRole("button",{name:"开始计时",exact:true}).click();
+    await expect(page.getByRole("button",{name:"暂停计时",exact:true})).toBeEnabled();
+    expect(state.timeRecords).toHaveLength(2);expect(state.timeRecords[0].id).not.toBe(state.timeRecords[1].id);
+    expect(state.timeRecords[0].finished_at).not.toBeNull();expect(state.timeRecords[1].finished_at).toBeNull();
+    expect(state.errors).toEqual([]);
+  });
+
+  test("overlapping manual input is retained so the user can correct the time range",async({page,context})=>{
+    const state=await isolate(page,context);state.timeRecords.push(timeFixture("77777777-7777-4777-8777-000000000001","study",shiftDate(today,-1),"09:00","10:00"));
+    await page.goto("/time");await page.getByRole("button",{name:"补记时间",exact:true}).click();
+    const dialog=page.getByRole("dialog",{name:"补记时间",exact:true});await fillManual(dialog,"调整重叠时段");
+    await dialog.getByRole("button",{name:"保存记录",exact:true}).click();await expect(dialog.getByRole("alert")).toContainText("重叠");
+    await expect(dialog.getByLabel("记录内容")).toHaveValue("调整重叠时段");
+    await dialog.getByLabel("开始时间",{exact:true}).fill("11:00");await dialog.getByLabel("结束时间",{exact:true}).fill("11:30");
+    await dialog.getByRole("button",{name:"保存记录",exact:true}).click();await expect(dialog).not.toBeVisible();
+    expect(state.timeRecords).toHaveLength(2);expect(state.errors).toEqual([]);
+  });
+
+  test("task-linked timer survives navigation and reload, excludes a pause and does not complete its task",async({page,context})=>{
+    const state=await isolate(page,context);await page.clock.install();
+    await page.goto("/todos");await todoRow(page,"每天读书").getByRole("button",{name:"记录时间",exact:true}).click();
+    await expect(page.getByLabel("正在做什么",{exact:true})).toHaveValue("每天读书");
+    await page.getByLabel("时间分类",{exact:true}).selectOption("study");
+    await page.getByRole("button",{name:"开始计时",exact:true}).click();
+    await expect(page.getByRole("button",{name:"暂停计时",exact:true})).toBeVisible();
+    await page.clock.fastForward(65_000);state.timeNow+=65_000;
+    await page.getByRole("button",{name:"暂停计时",exact:true}).click();
+    await expect(page.getByRole("button",{name:"继续计时",exact:true})).toBeEnabled();
+    const elapsed=await page.getByLabel("本次累计用时").innerText();
+    await page.clock.fastForward(120_000);state.timeNow+=120_000;
+    await expect(page.getByLabel("本次累计用时")).toHaveText(elapsed);
+    await page.getByRole("navigation",{name:"主要导航"}).getByRole("link",{name:"一周计划",exact:true}).click();
+    await expect(page.getByRole("complementary",{name:"当前计时"})).toContainText("已暂停");
+    await page.getByRole("navigation",{name:"主要导航"}).getByRole("link",{name:"时间记录",exact:true}).click();
+    await expect(page).toHaveURL(/\/time$/);
+    await expect(page.getByLabel("本次累计用时")).toHaveText(elapsed);
+    await page.reload();await expect(page.getByLabel("本次累计用时")).toHaveText(elapsed);
+    await page.getByRole("button",{name:"继续计时",exact:true}).click();
+    await expect(page.getByRole("button",{name:"暂停计时",exact:true})).toBeEnabled();
+    await page.clock.fastForward(35_000);state.timeNow+=35_000;
+    await page.getByRole("button",{name:"结束并保存",exact:true}).click();
+    await expect(page.getByText("用时已保存，任务完成状态保持原样。",{exact:true})).toBeVisible();
+    expect(state.timeRecords).toHaveLength(1);expect(state.timeRecords[0].task_id).toBe(state.todos[0].id);
+    expect(recordedSeconds(state.timeRecords[0])).toBeGreaterThanOrEqual(99);expect(recordedSeconds(state.timeRecords[0])).toBeLessThan(105);
+    expect(state.todos[0].done).toBe(false);expect(state.timeRecords[0].segments).toHaveLength(2);
+    await page.getByRole("navigation",{name:"主要导航"}).getByRole("link",{name:"行动回顾",exact:true}).click();
+    await expect(page.getByRole("img",{name:/学习 100.0%/})).toBeVisible();expect(state.errors).toEqual([]);
+  });
+
+  test("failed manual save preserves fields, protects dismissal and retries with the same id",async({page,context})=>{
+    const state=await isolate(page,context);state.timePlans.push({outcome:"error"});
+    await page.goto("/time");await page.getByRole("button",{name:"补记时间",exact:true}).click();
+    const dialog=page.getByRole("dialog",{name:"补记时间",exact:true});await fillManual(dialog,"失败后继续保存");
+    await dialog.getByRole("button",{name:"保存记录",exact:true}).click();await expect(dialog.getByRole("alert")).toContainText("模拟时间保存失败");
+    await expect(dialog.getByLabel("记录内容")).toHaveValue("失败后继续保存");
+    await page.keyboard.press("Escape");await expect(dialog.getByRole("alert",{name:"未保存的时间记录"})).toBeVisible();
+    await dialog.getByRole("button",{name:"继续编辑",exact:true}).click();
+    const slow=gate();state.timePlans.push({wait:slow.wait});
+    try{
+      await dialog.getByRole("button",{name:"保存记录",exact:true}).click();await page.keyboard.press("Escape");await expect(dialog).toBeVisible();
+      await dialog.locator("form").evaluate((form:HTMLFormElement)=>{form.requestSubmit();form.requestSubmit();});
+      await expect.poll(()=>state.timeWrites.length).toBe(2);expect(state.timeWrites[0].payload.p_id).toBe(state.timeWrites[1].payload.p_id);
+      slow.release();await expect(dialog).not.toBeVisible();expect(state.timeRecords).toHaveLength(1);
+    }finally{slow.release();}
+    await page.getByRole("navigation",{name:"主要导航"}).getByRole("link",{name:"行动回顾",exact:true}).click();await expect(page.getByRole("img",{name:/工作 100.0%/})).toBeVisible();
+    expect(state.errors).toEqual([]);
+  });
+
+  test("pie uses saved actual time and responds to 7 and 30 day ranges",async({page,context},info)=>{
+    const state=await isolate(page,context);
+    state.timeRecords.push(timeFixture("77777777-7777-4777-8777-000000000001","work",shiftDate(today,-1),"09:00","09:30"),timeFixture("77777777-7777-4777-8777-000000000002","study",shiftDate(today,-2),"09:00","10:30"),timeFixture("77777777-7777-4777-8777-000000000003","work",shiftDate(today,-15),"09:00","11:00"));
+    await page.goto("/review");const pie=page.getByRole("figure",{name:"时间分类占比"});
+    await expect(pie.getByRole("img")).toHaveAttribute("aria-label",/学习 75.0%/);await expect(pie).toContainText("2小时 0分");
+    await page.getByRole("button",{name:"近 30 天",exact:true}).click();await expect(pie.getByRole("img")).toHaveAttribute("aria-label",/工作 62.5%/);
+    await page.getByRole("button",{name:"查看时间明细",exact:true}).click();await expect(page.locator("[data-time-record]")).toHaveCount(3);
+    await page.screenshot({path:info.outputPath("time-pie-desktop.png"),fullPage:true});expect(state.errors).toEqual([]);
+  });
+
+  test("editing timer metadata preserves pauses; failed deletion keeps the record until confirmed",async({page,context})=>{
+    const state=await isolate(page,context);const row=timeFixture("77777777-7777-4777-8777-000000000001","study",shiftDate(today,-1),"09:00","09:30");row.source="timer";row.segments.push({start:`${shiftDate(today,-1)}T10:00:00+08:00`,end:`${shiftDate(today,-1)}T10:10:00+08:00`});row.ended_at=row.segments[1].end;state.timeRecords.push(row);
+    await page.goto("/time");await page.getByRole("button",{name:"编辑记录",exact:true}).click();const dialog=page.getByRole("dialog",{name:"编辑时间记录",exact:true});
+    await expect(dialog.getByLabel("调整起止时间")).not.toBeChecked();await dialog.getByLabel("记录内容").fill("更清晰的活动名");await dialog.getByRole("button",{name:"保存记录",exact:true}).click();await expect(dialog).not.toBeVisible();
+    expect(state.timeWrites.at(-1)?.payload.p_start).toBeNull();expect(state.timeRecords[0].segments).toHaveLength(2);
+    state.timePlans.push({outcome:"error"});await page.getByRole("button",{name:"删除记录",exact:true}).click();const confirm=page.getByRole("dialog",{name:"删除时间记录",exact:true});await confirm.getByRole("button",{name:"确认删除记录",exact:true}).click();await expect(confirm.getByRole("alert")).toBeVisible();expect(state.timeRecords).toHaveLength(1);
+    await confirm.getByRole("button",{name:"确认删除记录",exact:true}).click();await expect(confirm).not.toBeVisible();expect(state.timeRecords).toHaveLength(0);expect(state.todos).toHaveLength(2);expect(state.errors).toEqual([]);
+  });
+
+  test("schema not yet installed does not hide task review and can recover after migration",async({page,context})=>{
+    const state=await isolate(page,context);state.timeMissing=true;await page.goto("/review");
+    await expect(page.getByRole("region",{name:"实际时间回顾"}).getByRole("alert")).toContainText("数据库更新");await expect(page.getByRole("region",{name:"回顾摘要"})).toBeVisible();
+    await page.getByRole("navigation",{name:"主要导航"}).getByRole("link",{name:"时间记录",exact:true}).click();await expect(page.getByRole("button",{name:"开始计时",exact:true})).toBeDisabled();
+    state.timeMissing=false;await page.getByRole("button",{name:"同步计时状态",exact:true}).click();await page.getByLabel("正在做什么").fill("更新后可记录");await expect(page.getByRole("button",{name:"开始计时",exact:true})).toBeEnabled();expect(state.errors).toEqual([]);
+  });
+
+  test("conflicting timer operation synchronizes the latest state instead of overwriting another page",async({page,context})=>{
+    const state=await isolate(page,context);await page.goto("/time");await page.getByLabel("正在做什么").fill("跨页面计时");await page.getByRole("button",{name:"开始计时",exact:true}).click();await expect(page.getByRole("button",{name:"暂停计时",exact:true})).toBeVisible();
+    state.timeRecords[0].version++;state.timeRecords[0].running_since=null;
+    await page.getByRole("button",{name:"暂停计时",exact:true}).click();await expect(page.locator("#main-content").getByRole("alert")).toContainText("其他页面更新");await expect(page.getByRole("button",{name:"继续计时",exact:true})).toBeEnabled();
+    await page.getByRole("button",{name:"继续计时",exact:true}).click();await expect.poll(()=>state.timeWrites.at(-1)?.payload.p_version).toBe(2);expect(state.errors).toEqual([]);
+  });
+
+  for(const width of [320,375])test("mobile time controls, manual form and pie support large text at "+width,async({page,context},info)=>{
+    await page.setViewportSize({width,height:900});const state=await isolate(page,context);await page.emulateMedia({reducedMotion:"reduce"});await page.addInitScript(()=>localStorage.setItem("toolkit-theme","dark"));
+    state.timeRecords.push(timeFixture("77777777-7777-4777-8777-000000000001","study",shiftDate(today,-1),"09:00","10:00"));
+    await page.goto("/time");await page.evaluate(()=>{document.documentElement.style.fontSize="200%";});await noOverflow(page);
+    await page.getByRole("button",{name:"补记时间",exact:true}).click();const dialog=page.getByRole("dialog",{name:"补记时间",exact:true});await fillManual(dialog,"移动端记录");await dialog.getByLabel("开始时间",{exact:true}).fill("11:00");await dialog.getByLabel("结束时间",{exact:true}).fill("11:30");await noOverflow(page);await page.screenshot({path:info.outputPath("time-manual-mobile.png")});await dialog.getByRole("button",{name:"保存记录",exact:true}).click();await expect(dialog).not.toBeVisible();
+    await page.getByLabel("正在做什么").fill("移动端计时");await page.getByRole("button",{name:"开始计时",exact:true}).click();
+    await expect(page.getByRole("button",{name:"暂停计时",exact:true})).toBeEnabled();await noOverflow(page);
+    await page.getByRole("button",{name:"暂停计时",exact:true}).click();await expect(page.getByRole("button",{name:"继续计时",exact:true})).toBeEnabled();
+    await page.screenshot({path:info.outputPath("time-active-mobile.png")});await page.getByRole("button",{name:"结束并保存",exact:true}).click();
+    await expect(page.getByRole("button",{name:"开始计时",exact:true})).toBeEnabled();
+    await page.goto("/review");await page.evaluate(()=>{document.documentElement.style.fontSize="200%";});const pie=page.getByRole("figure",{name:"时间分类占比"});await expect(pie).toBeVisible();await noOverflow(page);await pie.screenshot({path:info.outputPath("time-pie-mobile.png")});expect(state.errors).toEqual([]);
   });
 });
 

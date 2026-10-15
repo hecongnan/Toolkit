@@ -16,6 +16,8 @@ import { Tag } from "@/components/ui/Tag";
 import { cn } from "@/lib/cn";
 import type { Todo } from "@/lib/types";
 import { TodoMenu, type TodoMenuAction } from "./TodoMenu";
+import { useRouter } from "next/navigation";
+import { Timer } from "lucide-react";
 
 interface Props {
   todo: Todo;
@@ -65,6 +67,7 @@ export function TodoItem({
   onMoveToToday,
   allowReorder = true,
 }: Props) {
+  const router = useRouter();
   const reorderable = allowReorder && !todo.done && !todo.skipped && !showDate;
   const actions: TodoMenuAction[] = [
     { label: "编辑", icon: <Pencil size={16} />, onSelect: () => onEdit(todo) },
@@ -75,6 +78,7 @@ export function TodoItem({
       { label: "上移", icon: <ChevronUp size={16} />, disabled: !canMoveUp, onSelect: () => onMove(todo.id, -1) },
       { label: "下移", icon: <ChevronDown size={16} />, disabled: !canMoveDown, onSelect: () => onMove(todo.id, 1) },
     ] : []),
+    { label: "记录时间", icon: <Timer size={16} />, onSelect: () => router.push(`/time?task=${todo.id}`) },
     { label: "删除", icon: <Trash2 size={16} />, danger: true, onSelect: () => onDelete(todo.id) },
   ];
   return (
@@ -153,6 +157,7 @@ export function TodoItem({
 
       <TodoMenu title={todo.text} disabled={disabled} actions={actions} />
       <div className="todo-actions hidden shrink-0 flex-wrap items-center justify-end sm:flex">
+        <IconButton label="记录时间" disabled={disabled} onClick={() => router.push(`/time?task=${todo.id}`)}><Timer size={16} /></IconButton>
         {reorderable && (
           <>
             <IconButton

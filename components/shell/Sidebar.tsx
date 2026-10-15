@@ -13,6 +13,7 @@ import {
   Moon,
   Sparkles,
   Sun,
+  Timer,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { createClient } from "@/lib/supabase/client";
@@ -21,6 +22,7 @@ const NAV = [
   { href: "/", label: "概览", icon: LayoutDashboard },
   { href: "/todos", label: "每日待办", icon: CheckCircle2 },
   { href: "/week", label: "一周计划", icon: CalendarDays },
+  { href: "/time", label: "时间记录", icon: Timer },
   { href: "/review", label: "行动回顾", icon: ChartNoAxesCombined },
 ] as const;
 
