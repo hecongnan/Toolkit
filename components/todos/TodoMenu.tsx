@@ -92,7 +92,7 @@ export function TodoMenu({ title, disabled, actions }: {
       onKeyDown={(event) => {
         if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); setOpen(true); }
       }}
-      className="button icon-button focus-ring disabled:opacity-25">
+      className="button icon-button max-sm:h-[44px] max-sm:w-[44px] focus-ring disabled:opacity-25">
       <MoreHorizontal size={20} aria-hidden />
     </button>
     {open && createPortal(<div ref={menu} id={id} role="menu" aria-label={`任务操作：${title}`}

@@ -30,14 +30,14 @@ export function DateNav({ value, onChange, disabled = false }: Props) {
           disabled={disabled}
           onClick={() => onChange(shiftDate(value, -1))}
           aria-label="上一天"
-          className="button icon-button focus-ring"
+          className="button icon-button max-sm:h-[44px] max-sm:w-[44px] focus-ring"
         >
           <ChevronLeft size={18} />
         </button>
         <button
           disabled={disabled}
           onClick={() => onChange(todayKey())}
-          className="button button-ghost min-h-11 rounded-xl px-3 text-sm font-medium focus-ring"
+          className="button button-ghost min-h-11 whitespace-nowrap rounded-xl px-3 text-sm font-medium focus-ring"
         >
           今天
         </button>
@@ -45,7 +45,7 @@ export function DateNav({ value, onChange, disabled = false }: Props) {
           disabled={disabled}
           onClick={() => onChange(shiftDate(value, 1))}
           aria-label="下一天"
-          className="button icon-button focus-ring"
+          className="button icon-button max-sm:h-[44px] max-sm:w-[44px] focus-ring"
         >
           <ChevronRight size={18} />
         </button>

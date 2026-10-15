@@ -55,7 +55,7 @@ async function isolate(page: Page, context: BrowserContext, authenticated = true
     failMaterial: false, materialWrites: 0, materialIds: [] as string[],
     materialPlans: new Map<string, TodoPatchPlan[]>(),
     materialRequests: [] as { id: string; method: string; payload: Partial<MaterialFixture> }[],
-    todos, materials, reports, todoReads: 0, todoWrites: [] as { id: string; patch: Partial<TodoFixture> }[],
+    todos, materials, reports, todoReads: 0, todoReadDates: [] as string[], todoWrites: [] as { id: string; patch: Partial<TodoFixture> }[],
     todoPatchPlans: new Map<string, TodoPatchPlan[]>(),
     holdTodoReads: undefined as Promise<void> | undefined,
     readPlans: new Map<ReadSection, ReadPlan[]>(),
@@ -95,11 +95,14 @@ async function isolate(page: Page, context: BrowserContext, authenticated = true
         const plan = state.createPlans.shift();
         if (plan?.wait) await plan.wait;
         if (plan?.outcome === "error") return respond({ message: "模拟添加失败，请重试", code: "P0001" }, 400);
+        if (plan?.outcome === "empty") return respond(null);
+        if (plan?.outcome === "missing") return respond({ id: "unrelated-task" });
         if (!todos.some((row) => row.id === payload.p_id)) todos.push(todoFixture(payload.p_id, payload.p_text, {
           priority: payload.p_priority, due_date: payload.p_due_date, scheduled_time: payload.p_time,
           repeat_rule: payload.p_repeat, series_id: payload.p_repeat === "none" ? null : payload.p_id, position: payload.p_position,
         }));
-        return respond(payload.p_id);
+        const saved = todos.find((row) => row.id === payload.p_id)!;
+        return respond(request.headers().accept?.includes("application/vnd.pgrst.object+json") ? saved : [saved]);
       }
       if (url.pathname.endsWith("/todo_ensure_occurrences") && state.failRecurrence) return respond({ message: "模拟重复计划失败", code: "P0001" }, 400);
       if (url.pathname.endsWith("/todo_remove")) {
@@ -128,6 +131,7 @@ async function isolate(page: Page, context: BrowserContext, authenticated = true
       }
       state.todoReads++;
       const due = url.searchParams.get("due_date");
+      if (due?.startsWith("eq.")) state.todoReadDates.push(due.slice(3));
       const filtered = todos.filter((row) =>
         (!due || (due.startsWith("eq.") ? row.due_date === due.slice(3) : row.due_date < due.slice(3))) &&
         (!url.searchParams.has("done") || row.done === (url.searchParams.get("done") === "eq.true")) &&
@@ -1361,6 +1365,468 @@ test.describe("task creation dialog", () => {
     await page.keyboard.press("Escape");
     await expect(dialog).not.toBeVisible();
     await expect(trigger).toBeFocused();
+    expect(state.errors).toEqual([]);
+  });
+});
+
+test.describe("task search and view memory", () => {
+  const viewKey = `toolkit:todo-view:${userId}`;
+  const future = "2030-11-04";
+
+  test("title and time use normalized AND search without refetching or changing day progress", async ({ page, context }, info) => {
+    const state = await isolate(page, context);
+    state.todos[0].text = "React 组件阅读";
+    state.todos.push(todoFixture("77777777-7777-4777-8777-777777777777", "React 会议", { scheduled_time: "09:30:00" }));
+    await page.goto("/todos");
+    await expect(todoRow(page, "React 组件阅读")).toBeVisible();
+    const reads = state.todoReads;
+    const input = page.getByRole("textbox", { name: "搜索当前任务", exact: true });
+    await input.fill(" ＲＥＡＣＴ  组件 ０８：３０ ");
+    await expect(todoRow(page, "React 组件阅读")).toBeVisible();
+    await expect(todoRow(page, "React 会议")).toHaveCount(0);
+    await expect(page.getByRole("status").filter({ hasText: "匹配 1 / 3 项" })).toBeVisible();
+    await expect(page.getByRole("progressbar", { name: "当日完成度" })).toHaveAttribute("aria-valuenow", "33");
+    await expect(todoRow(page, "React 组件阅读")).toHaveAttribute("draggable", "false");
+    await expect(page.getByRole("button", { name: "下移", exact: true })).toHaveCount(0);
+    await expect(todoRow(page, "React 组件阅读").getByRole("button", { name: "编辑", exact: true })).toBeEnabled();
+    await input.fill("不存在的任务");
+    await expect(page.getByText("没有匹配的任务", { exact: true })).toBeVisible();
+    await expect(page.getByText("这一天没有待办", { exact: true })).toHaveCount(0);
+    await page.screenshot({ path: info.outputPath("task-search-empty-desktop.png"), fullPage: true });
+    await page.getByRole("button", { name: "清除搜索，查看全部", exact: true }).click();
+    await expect(input).toBeFocused();
+    await expect(input).toHaveValue("");
+    await expect(todoRow(page, "React 会议")).toBeVisible();
+    await expect(todoRow(page, "React 组件阅读")).toHaveAttribute("draggable", "true");
+    await expect(todoRow(page, "React 组件阅读").getByRole("button", { name: "下移", exact: true })).toBeEnabled();
+    expect(state.todoReads).toBe(reads);
+    expect(state.todoWrites).toHaveLength(0);
+    expect(state.errors).toEqual([]);
+  });
+
+  test("search reveals completed and skipped matches and restores collapsed browsing on clear", async ({ page, context }) => {
+    const state = await isolate(page, context);
+    state.todos.push(todoFixture("77777777-7777-4777-8777-777777777777", "学习运动", { skipped: true }));
+    await page.goto("/todos");
+    await expect(todoRow(page, "每天读书")).toBeVisible();
+    await page.getByLabel("搜索当前任务", { exact: true }).fill("学习");
+    await expect(todoRow(page, "整理学习资料")).toBeVisible();
+    await expect(page.getByRole("button", { name: "恢复这次", exact: true })).toBeVisible();
+    await expect(page.getByRole("status").filter({ hasText: "匹配 2 / 3 项" })).toBeVisible();
+    await expect(page.getByRole("progressbar", { name: "当日完成度" })).toHaveAttribute("aria-valuenow", "50");
+    await page.getByRole("button", { name: "清除任务搜索", exact: true }).click();
+    await expect(todoRow(page, "整理学习资料")).not.toBeVisible();
+    await expect(page.getByRole("button", { name: "恢复这次", exact: true })).not.toBeVisible();
+    expect(state.errors).toEqual([]);
+  });
+
+  test("completion and failed undo under search retain the match, query and list without reads", async ({ page, context }) => {
+    const state = await isolate(page, context);
+    await page.goto("/todos");
+    await expect(todoRow(page, "每天读书")).toBeVisible();
+    const reads = state.todoReads;
+    const input = page.getByLabel("搜索当前任务", { exact: true });
+    await input.fill("读书");
+    await todoRow(page, "每天读书").getByRole("button", { name: "标记完成", exact: true }).click();
+    await expect(todoRow(page, "每天读书").getByRole("button", { name: "标记未完成", exact: true })).toBeEnabled();
+    await expect(input).toHaveValue("读书");
+    await expect(page.getByRole("progressbar", { name: "当日完成度" })).toHaveAttribute("aria-valuenow", "100");
+    const undo = page.getByRole("button", { name: "撤销完成：每天读书", exact: true });
+    state.todoPatchPlans.set(state.todos[0].id, [{ outcome: "error" }]);
+    await undo.click();
+    await expect(page.getByRole("status").filter({ hasText: "撤销未保存" })).toBeVisible();
+    await expect(todoRow(page, "每天读书")).toBeVisible();
+    await undo.click();
+    await expect(todoRow(page, "每天读书").getByRole("button", { name: "标记完成", exact: true })).toBeEnabled();
+    await expect(input).toHaveValue("读书");
+    expect(state.todoReads).toBe(reads);
+    expect(state.errors).toEqual([]);
+  });
+
+  test("unloaded overdue records require load more and other dates are not silently searched", async ({ page, context }) => {
+    const state = await isolate(page, context);
+    for (let i = 0; i < 51; i++) state.todos.push(todoFixture(`77777777-7777-4777-8777-${String(i).padStart(12, "0")}`, i === 50 ? "尚未加载的目标" : `逾期记录 ${i}`, { due_date: "2020-01-01" }));
+    state.todos.push(todoFixture("88888888-8888-4888-8888-888888888888", "未来独有目标", { due_date: future }));
+    await page.goto("/todos");
+    await expect(todoRow(page, "每天读书")).toBeVisible();
+    const input = page.getByLabel("搜索当前任务", { exact: true });
+    await input.fill("尚未加载的目标");
+    await expect(page.getByText("没有匹配的任务", { exact: true })).toBeVisible();
+    await expect(page.getByRole("status").filter({ hasText: "匹配 0 / 52 项" })).toBeVisible();
+    await page.getByRole("button", { name: "加载更多（已加载 50/51）", exact: true }).click();
+    await expect(todoRow(page, "尚未加载的目标")).toBeVisible();
+    await expect(page.getByRole("status").filter({ hasText: "匹配 1 / 53 项" })).toBeVisible();
+    await expect(page.getByRole("button", { name: /加载更多/ })).toHaveCount(0);
+    await input.fill("未来独有目标");
+    await expect(todoRow(page, "未来独有目标")).toHaveCount(0);
+    await expect(page.getByText("逾期任务中没有匹配。", { exact: true })).toBeVisible();
+    await page.getByLabel("选择任务日期", { exact: true }).fill(future);
+    await expect(todoRow(page, "未来独有目标")).toBeVisible();
+    await expect(page.getByRole("status").filter({ hasText: "匹配 1 / 1 项" })).toBeVisible();
+    await expect(page.getByText(/范围：当前日期的任务/)).toBeVisible();
+    expect(state.errors).toEqual([]);
+  });
+
+  test("date and query return after navigation and reload without first requesting today", async ({ page, context }) => {
+    const state = await isolate(page, context);
+    state.todos.push(todoFixture("77777777-7777-4777-8777-777777777777", "未来阅读", { due_date: future }));
+    await page.goto("/todos");
+    await page.getByLabel("选择任务日期", { exact: true }).fill(future);
+    await expect(todoRow(page, "未来阅读")).toBeVisible();
+    await page.getByLabel("搜索当前任务", { exact: true }).fill("阅读");
+    await page.getByRole("link", { name: "AI 设置", exact: true }).click();
+    await expect(page.getByRole("heading", { level: 1, name: "AI 设置" })).toBeVisible();
+    state.todoReadDates.length = 0;
+    await page.getByRole("link", { name: "每日待办", exact: true }).click();
+    await expect(page.getByLabel("选择任务日期", { exact: true })).toHaveValue(future);
+    await expect(page.getByLabel("搜索当前任务", { exact: true })).toHaveValue("阅读");
+    await expect(todoRow(page, "未来阅读")).toBeVisible();
+    expect(state.todoReadDates).toEqual([future]);
+    state.todoReadDates.length = 0;
+    await page.reload();
+    await expect(todoRow(page, "未来阅读")).toBeVisible();
+    await expect(page.getByLabel("搜索当前任务", { exact: true })).toHaveValue("阅读");
+    expect(state.todoReadDates).toEqual([future]);
+    await expect(page).toHaveURL(/\/todos$/);
+    expect(state.errors).toEqual([]);
+  });
+
+  test("overview today links override remembered future dates and search", async ({ page, context }) => {
+    const state = await isolate(page, context);
+    await page.goto(`/todos?date=${future}&q=未来`);
+    await expect(page.getByLabel("选择任务日期", { exact: true })).toHaveValue(future);
+    await page.getByRole("link", { name: "概览", exact: true }).click();
+    await expect(page.getByRole("link", { name: "管理待办", exact: true })).toBeVisible();
+    await expect(page.getByRole("link", { name: "今日进度", exact: true })).toHaveAttribute("href", "/todos?date=today");
+    state.todoReadDates.length = 0;
+    await page.getByRole("link", { name: "管理待办", exact: true }).click();
+    await expect(todoRow(page, "每天读书")).toBeVisible();
+    await expect(page.getByLabel("选择任务日期", { exact: true })).toHaveValue(today);
+    await expect(page.getByLabel("搜索当前任务", { exact: true })).toHaveValue("");
+    expect(state.todoReadDates).toEqual([today]);
+    expect(state.errors).toEqual([]);
+  });
+
+  test("entry parameters are consumed without losing unrelated parameters or later selections", async ({ page, context }) => {
+    const state = await isolate(page, context);
+    await page.goto("/todos?date=today&q=读书&utm=test#main-content");
+    await expect(page.getByLabel("搜索当前任务", { exact: true })).toHaveValue("读书");
+    await expect(page).toHaveURL(/\/todos\?utm=test#main-content$/);
+    await page.getByLabel("选择任务日期", { exact: true }).fill(future);
+    await page.getByLabel("搜索当前任务", { exact: true }).fill("后续选择");
+    await page.reload();
+    await expect(page.getByLabel("选择任务日期", { exact: true })).toHaveValue(future);
+    await expect(page.getByLabel("搜索当前任务", { exact: true })).toHaveValue("后续选择");
+    expect(state.errors).toEqual([]);
+  });
+
+  for (const record of ["corrupt", "foreign", "invalid-date", "today-memory", "historical-memory"] as const) {
+    test(`safe account-scoped view restoration: ${record}`, async ({ page, context }) => {
+      const state = await isolate(page, context);
+      await page.addInitScript(({ key, record }) => {
+        const view = { version: 1, date: record === "invalid-date" ? "2026-02-30" : "2020-01-01", query: "旧搜索", followsToday: record === "today-memory" };
+        sessionStorage.setItem(record === "foreign" ? "toolkit:todo-view:other-account" : key, record === "corrupt" ? "broken json" : JSON.stringify(view));
+      }, { key: viewKey, record });
+      await page.goto("/todos");
+      const valid = record === "today-memory" || record === "historical-memory";
+      const date = record === "historical-memory" ? "2020-01-01" : today;
+      await expect(page.getByLabel("选择任务日期", { exact: true })).toHaveValue(date);
+      await expect(page.getByLabel("搜索当前任务", { exact: true })).toHaveValue(valid ? "旧搜索" : "");
+      await expect(page.getByRole("status", { name: "正在加载", exact: true })).toHaveCount(0);
+      expect(state.todoReadDates).toEqual([date]);
+      expect(state.errors).toEqual([]);
+    });
+  }
+
+  test("invalid incoming dates fall back to today instead of stored future date", async ({ page, context }) => {
+    const state = await isolate(page, context);
+    await page.addInitScript((key) => sessionStorage.setItem(key, JSON.stringify({ version: 1, date: "2030-11-04", query: "旧搜索", followsToday: false })), viewKey);
+    await page.goto("/todos?date=2026-02-30&utm=test");
+    await expect(page.getByLabel("选择任务日期", { exact: true })).toHaveValue(today);
+    await expect(page.getByLabel("搜索当前任务", { exact: true })).toHaveValue("");
+    await expect(page).toHaveURL(/\/todos\?utm=test$/);
+    expect(state.errors).toEqual([]);
+  });
+
+  test("switching accounts does not reveal previous account's search or date", async ({ page, context }) => {
+    const state = await isolate(page, context);
+    await page.goto(`/todos?date=${future}&q=私人搜索`);
+    await expect(page.getByLabel("搜索当前任务", { exact: true })).toHaveValue("私人搜索");
+    state.authUser = { ...user, id: "88888888-8888-4888-8888-888888888888" };
+    await page.reload();
+    await expect(page.getByLabel("选择任务日期", { exact: true })).toHaveValue(today);
+    await expect(page.getByLabel("搜索当前任务", { exact: true })).toHaveValue("");
+    expect(await page.evaluate((key) => JSON.parse(sessionStorage.getItem(key)!)?.query, viewKey)).toBe("私人搜索");
+    expect(state.errors).toEqual([]);
+  });
+
+  test("unavailable storage does not block searching or completing tasks", async ({ page, context }) => {
+    const state = await isolate(page, context);
+    await page.addInitScript(() => {
+      const get = Storage.prototype.getItem, set = Storage.prototype.setItem;
+      Storage.prototype.getItem = function (key) { if (key.startsWith("toolkit:todo-view:")) throw new Error("unavailable"); return get.call(this, key); };
+      Storage.prototype.setItem = function (key, value) { if (key.startsWith("toolkit:todo-view:")) throw new Error("unavailable"); return set.call(this, key, value); };
+    });
+    await page.goto("/todos");
+    await page.getByLabel("搜索当前任务", { exact: true }).fill("读书");
+    await todoRow(page, "每天读书").getByRole("button", { name: "标记完成", exact: true }).click();
+    await expect(todoRow(page, "每天读书").getByRole("button", { name: "标记未完成", exact: true })).toBeEnabled();
+    expect(state.todos[0].done).toBe(true);
+    expect(state.errors).toEqual([]);
+  });
+
+  test("mobile large text search has touch targets, keyboard clear and no hidden ordering actions", async ({ page, context }, info) => {
+    const state = await isolate(page, context);
+    await page.setViewportSize({ width: 320, height: 900 });
+    await page.emulateMedia({ colorScheme: "dark", reducedMotion: "reduce" });
+    await page.goto("/todos");
+    await expect(todoRow(page, "每天读书")).toBeVisible();
+    await page.evaluate(() => { document.documentElement.style.fontSize = "200%"; });
+    await page.getByLabel("搜索当前任务", { exact: true }).fill("读书");
+    const clear = page.getByRole("button", { name: "清除任务搜索", exact: true });
+    const box = await clear.boundingBox();
+    expect(box!.height).toBeGreaterThanOrEqual(44);
+    expect(box!.width).toBeGreaterThanOrEqual(44);
+    expect((await todoRow(page, "每天读书").getByText("每天读书", { exact: true }).boundingBox())!.width).toBeGreaterThanOrEqual(96);
+    for (const control of ["标记完成", "更多操作：每天读书", "上一天", "下一天"]) {
+      const target = await page.getByRole("button", { name: control, exact: true }).boundingBox();
+      expect(target!.height).toBeGreaterThanOrEqual(44);
+      expect(target!.width).toBeGreaterThanOrEqual(44);
+    }
+    await noOverflow(page);
+    await page.screenshot({ path: info.outputPath("task-search-small-dark-large-text.png"), fullPage: true });
+    await page.getByRole("button", { name: "更多操作：每天读书", exact: true }).click();
+    await expect(page.getByRole("menuitem", { name: "上移", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("menuitem", { name: "下移", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("menuitem", { name: "编辑", exact: true })).toBeEnabled();
+    await page.keyboard.press("Escape");
+    await clear.focus();
+    await page.keyboard.press("Enter");
+    await expect(page.getByLabel("搜索当前任务", { exact: true })).toHaveValue("");
+    await expect(page.getByLabel("搜索当前任务", { exact: true })).toBeFocused();
+    await noOverflow(page);
+    expect(state.errors).toEqual([]);
+  });
+});
+
+test.describe("touch task search", () => {
+  test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+
+  test("tap completion keeps search and other matching rows responsive", async ({ page, context }, info) => {
+    const state = await isolate(page, context);
+    state.todos.push(todoFixture("77777777-7777-4777-8777-777777777777", "另一份书单"));
+    await page.goto("/todos");
+    await expect(todoRow(page, "每天读书")).toBeVisible();
+    await page.getByLabel("搜索当前任务", { exact: true }).fill("书");
+    const stable = await watchTodoList(page, todoRow(page, "另一份书单"));
+    const reads = state.todoReads;
+    await todoRow(page, "每天读书").getByRole("button", { name: "标记完成", exact: true }).tap();
+    await expect(todoRow(page, "每天读书").getByRole("button", { name: "标记未完成", exact: true })).toBeEnabled();
+    await expect(page.getByLabel("搜索当前任务", { exact: true })).toHaveValue("书");
+    await expect(page.getByRole("status").filter({ hasText: "匹配 2 / 3 项" })).toBeVisible();
+    await stable();
+    expect(state.todoReads).toBe(reads);
+    await noOverflow(page);
+    await page.screenshot({ path: info.outputPath("task-search-mobile-completed.png"), fullPage: true });
+    await page.getByRole("button", { name: "清除任务搜索", exact: true }).tap();
+    await expect(page.getByLabel("搜索当前任务", { exact: true })).toBeFocused();
+    expect(state.errors).toEqual([]);
+  });
+});
+
+test.describe("task draft recovery", () => {
+  test.use({ hasTouch: true });
+  const draftKey = `toolkit:todo-draft:${userId}:new`;
+
+  test("navigation and reload recover all task fields and the same create id, then confirmed save clears the draft", async ({ page, context }, info) => {
+    const state = await isolate(page, context);
+    await page.goto("/todos");
+    await page.getByRole("button", { name: "添加任务", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "添加任务", exact: true });
+    await dialog.getByLabel("任务内容", { exact: true }).fill("跨页面保留的计划");
+    await dialog.getByLabel("任务日期", { exact: true }).fill("2026-10-19");
+    await dialog.getByLabel("计划时间", { exact: true }).fill("08:40");
+    await dialog.getByRole("button", { name: "低 · P3", exact: true }).click();
+    await dialog.getByLabel("重复规则", { exact: true }).selectOption("weekdays");
+    await expect.poll(() => page.evaluate((key) => JSON.parse(sessionStorage.getItem(key) ?? "null")?.draft.text, draftKey)).toBe("跨页面保留的计划");
+    const id = await page.evaluate((key) => JSON.parse(sessionStorage.getItem(key)!).draft.id, draftKey);
+    await dialog.getByRole("button", { name: "取消", exact: true }).click();
+    await page.getByRole("navigation", { name: "主要导航" }).getByRole("link", { name: "AI 设置", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "AI 设置", exact: true })).toBeVisible();
+    await page.getByRole("navigation", { name: "主要导航" }).getByRole("link", { name: "每日待办", exact: true }).click();
+    await page.getByRole("button", { name: "添加任务", exact: true }).click();
+    await expect(dialog.getByText("已恢复此标签页中的任务草稿。", { exact: true })).toBeVisible();
+    await expect(dialog.getByLabel("任务内容", { exact: true })).toHaveValue("跨页面保留的计划");
+    await expect(dialog.getByLabel("任务日期", { exact: true })).toHaveValue("2026-10-19");
+    await expect(dialog.getByLabel("计划时间", { exact: true })).toHaveValue("08:40");
+    await expect(dialog.getByRole("button", { name: "低 · P3", exact: true })).toHaveAttribute("aria-pressed", "true");
+    await expect(dialog.getByLabel("重复规则", { exact: true })).toHaveValue("weekdays");
+    await dialog.getByRole("button", { name: "取消", exact: true }).click();
+    await page.reload();
+    await page.getByRole("button", { name: "添加任务", exact: true }).click();
+    await expect(dialog.getByLabel("任务内容", { exact: true })).toHaveValue("跨页面保留的计划");
+    await expect(dialog.locator(".modal-panel")).toHaveCSS("opacity", "1");
+    await page.screenshot({ path: info.outputPath("task-draft-restored.png") });
+    await dialog.getByRole("button", { name: "添加", exact: true }).click();
+    await expect(dialog).not.toBeVisible();
+    expect(state.todoCreates).toHaveLength(1);
+    expect(state.todoCreates[0]).toMatchObject({ p_id: id, p_time: "08:40", p_repeat: "weekdays", p_priority: 3 });
+    await expect.poll(() => page.evaluate((key) => sessionStorage.getItem(key), draftKey)).toBeNull();
+    expect(state.errors).toEqual([]);
+  });
+
+  test("clearing a failed draft confirms intent, clears its error and restores focus without deleting saved tasks", async ({ page, context }) => {
+    const state = await isolate(page, context);
+    state.createPlans.push({ outcome: "error" });
+    await page.goto("/todos");
+    await page.getByRole("button", { name: "添加任务", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "添加任务", exact: true });
+    await dialog.getByLabel("任务内容", { exact: true }).fill("尚未添加");
+    await dialog.getByRole("button", { name: "添加", exact: true }).click();
+    await expect(dialog.getByRole("alert")).toContainText("模拟添加失败");
+    await dialog.getByRole("button", { name: "清除草稿", exact: true }).click();
+    await dialog.getByRole("button", { name: "保留内容", exact: true }).click();
+    await expect(dialog.getByLabel("任务内容", { exact: true })).toHaveValue("尚未添加");
+    await dialog.getByRole("button", { name: "清除草稿", exact: true }).click();
+    await dialog.getByRole("button", { name: "确认清除草稿", exact: true }).click();
+    await expect(dialog.getByLabel("任务内容", { exact: true })).toHaveValue("");
+    await expect(dialog.getByLabel("任务内容", { exact: true })).toBeFocused();
+    await expect(dialog.getByRole("alert")).toHaveCount(0);
+    expect(state.todos).toHaveLength(2);
+    expect(await page.evaluate((key) => sessionStorage.getItem(key), draftKey)).toBeNull();
+    expect(state.errors).toEqual([]);
+  });
+
+  for (const outcome of ["empty", "missing"] as const) {
+    test(outcome + " creation result cannot show success, remove input or delete the stored draft", async ({ page, context }) => {
+      const state = await isolate(page, context);
+      state.createPlans.push({ outcome });
+      await page.goto("/todos");
+      await page.getByRole("button", { name: "添加任务", exact: true }).click();
+      const dialog = page.getByRole("dialog", { name: "添加任务", exact: true });
+      await dialog.getByLabel("任务内容", { exact: true }).fill("必须确认已创建");
+      await dialog.getByRole("button", { name: "添加", exact: true }).click();
+      await expect(dialog.getByRole("alert")).toContainText("未收到任务创建确认");
+      await expect(dialog.getByLabel("任务内容", { exact: true })).toHaveValue("必须确认已创建");
+      expect(await page.evaluate((key) => JSON.parse(sessionStorage.getItem(key)!).draft.text, draftKey)).toBe("必须确认已创建");
+      await expect(page.getByText("任务已添加。", { exact: true })).toHaveCount(0);
+      await dialog.getByRole("button", { name: "添加", exact: true }).click();
+      await expect(dialog).not.toBeVisible();
+      expect(state.todoCreates[0].p_id).toBe(state.todoCreates[1].p_id);
+      expect(state.todos.filter((row) => row.text === "必须确认已创建")).toHaveLength(1);
+      expect(state.errors).toEqual([]);
+    });
+  }
+
+  test("a time-only draft retains its chosen date and switching dates without a draft follows the list", async ({ page, context }) => {
+    const state = await isolate(page, context);
+    await page.goto("/todos");
+    await page.getByLabel("选择任务日期").fill("2026-10-19");
+    await page.getByRole("button", { name: "添加任务", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "添加任务", exact: true });
+    await expect(dialog.getByLabel("任务日期", { exact: true })).toHaveValue("2026-10-19");
+    await dialog.getByLabel("计划时间", { exact: true }).fill("11:15");
+    await dialog.getByRole("button", { name: "取消", exact: true }).click();
+    await page.getByLabel("选择任务日期").fill("2026-10-20");
+    await page.getByRole("button", { name: "添加任务", exact: true }).click();
+    await expect(dialog.getByLabel("任务日期", { exact: true })).toHaveValue("2026-10-19");
+    await expect(dialog.getByLabel("计划时间", { exact: true })).toHaveValue("11:15");
+    await dialog.getByRole("button", { name: "清除草稿", exact: true }).click();
+    await dialog.getByRole("button", { name: "确认清除草稿", exact: true }).click();
+    await expect(dialog.getByLabel("任务日期", { exact: true })).toHaveValue("2026-10-20");
+    expect(state.todoCreates).toHaveLength(0);
+    expect(state.errors).toEqual([]);
+  });
+
+  test("unavailable storage warns before closing, preserves page input and still allows a confirmed save", async ({ page, context }, info) => {
+    const state = await isolate(page, context);
+    await page.addInitScript(() => {
+      const original = Storage.prototype.setItem;
+      Storage.prototype.setItem = function (key, value) {
+        if (key.startsWith("toolkit:todo-draft:")) throw new DOMException("Preview quota", "QuotaExceededError");
+        return original.call(this, key, value);
+      };
+    });
+    await page.setViewportSize({ width: 320, height: 1000 });
+    await page.emulateMedia({ colorScheme: "dark", reducedMotion: "reduce" });
+    await page.goto("/todos");
+    await page.getByRole("button", { name: "添加任务", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "添加任务", exact: true });
+    await dialog.getByLabel("任务内容", { exact: true }).fill("仍然可以正常添加");
+    await expect(dialog.getByText("无法保留草稿，请勿离开或刷新。", { exact: true })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(dialog.getByRole("alert", { name: "任务草稿未保留" })).toBeVisible();
+    await expect(dialog.getByRole("button", { name: "继续编辑", exact: true })).toBeFocused();
+    await noOverflow(page);
+    await page.screenshot({ path: info.outputPath("task-draft-storage-warning.png") });
+    await dialog.getByRole("button", { name: "仍然关闭，保留本页输入", exact: true }).click();
+    await expect(dialog).not.toBeVisible();
+    await page.getByRole("button", { name: "添加任务", exact: true }).click();
+    await expect(dialog.getByLabel("任务内容", { exact: true })).toHaveValue("仍然可以正常添加");
+    await dialog.getByRole("button", { name: "添加", exact: true }).click();
+    await expect(dialog).not.toBeVisible();
+    expect(state.todoCreates).toHaveLength(1);
+    expect(state.errors).toEqual([]);
+  });
+
+  test("malformed and foreign-account stored drafts never populate the form", async ({ page, context }) => {
+    const state = await isolate(page, context);
+    await page.addInitScript((key) => {
+      const draft = { id: "99999999-9999-4999-8999-999999999999", text: "另一个账号的内容", dueDate: "2026-10-19", priority: 2, scheduledTime: "", repeat: "none" };
+      sessionStorage.setItem("toolkit:todo-draft:other-account:new", JSON.stringify({ version: 1, draft, baselineDate: "2026-10-19" }));
+      sessionStorage.setItem(key, JSON.stringify({ version: 1, draft: { ...draft, priority: 99 }, baselineDate: "2026-10-19" }));
+    }, draftKey);
+    await page.goto("/todos");
+    await page.getByRole("button", { name: "添加任务", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "添加任务", exact: true });
+    await expect(dialog.getByLabel("任务内容", { exact: true })).toHaveValue("");
+    await expect(dialog.getByText("已恢复此标签页中的任务草稿。", { exact: true })).toHaveCount(0);
+    expect(state.todoCreates).toHaveLength(0);
+    expect(state.errors).toEqual([]);
+  });
+
+  test("failed storage removal does not falsely clear a draft or erase its input", async ({ page, context }) => {
+    const state = await isolate(page, context);
+    await page.goto("/todos");
+    await page.getByRole("button", { name: "添加任务", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "添加任务", exact: true });
+    await dialog.getByLabel("任务内容", { exact: true }).fill("清除失败时保留");
+    await page.evaluate(() => {
+      const original = Storage.prototype.removeItem;
+      Storage.prototype.removeItem = function (key) {
+        if (key.startsWith("toolkit:todo-draft:")) throw new DOMException("Preview removal denied", "SecurityError");
+        return original.call(this, key);
+      };
+    });
+    await dialog.getByRole("button", { name: "清除草稿", exact: true }).click();
+    await dialog.getByRole("button", { name: "确认清除草稿", exact: true }).click();
+    await expect(dialog.getByText("无法清除浏览器中的草稿，当前输入已保留，请检查存储权限。", { exact: true })).toBeVisible();
+    await expect(dialog.getByLabel("任务内容", { exact: true })).toHaveValue("清除失败时保留");
+    expect(state.todoCreates).toHaveLength(0);
+    expect(state.errors).toEqual([]);
+  });
+
+  test("short mobile view keeps create actions visible while fields scroll", async ({ page, context }, info) => {
+    const state = await isolate(page, context);
+    await page.setViewportSize({ width: 375, height: 560 });
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.goto("/todos");
+    await page.getByRole("button", { name: "添加任务", exact: true }).tap();
+    const dialog = page.getByRole("dialog", { name: "添加任务", exact: true });
+    await dialog.getByLabel("任务内容", { exact: true }).fill("短屏幕也能轻松添加");
+    const panel = dialog.locator(".modal-panel");
+    await panel.evaluate((node) => node.scrollTo(0, 0));
+    const submit = dialog.getByRole("button", { name: "添加", exact: true });
+    const bounds = await panel.boundingBox();
+    const button = await submit.boundingBox();
+    expect(button!.y).toBeGreaterThanOrEqual(bounds!.y);
+    expect(button!.y + button!.height).toBeLessThanOrEqual(bounds!.y + bounds!.height);
+    expect(button!.height).toBeGreaterThanOrEqual(44);
+    await noOverflow(page);
+    await page.screenshot({ path: info.outputPath("task-draft-short-mobile.png") });
+    await submit.tap();
+    await expect(dialog).not.toBeVisible();
+    expect(state.todoCreates).toHaveLength(1);
     expect(state.errors).toEqual([]);
   });
 });

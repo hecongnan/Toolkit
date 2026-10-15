@@ -34,6 +34,7 @@ interface Props {
   showDate?: boolean;
   onSkip?: (id: string) => void;
   onMoveToToday?: (id: string) => void;
+  allowReorder?: boolean;
 }
 
 const PRIORITY_TONE = { 1: "rose", 2: "amber", 3: "sky" } as const;
@@ -62,8 +63,9 @@ export function TodoItem({
   showDate = false,
   onSkip,
   onMoveToToday,
+  allowReorder = true,
 }: Props) {
-  const reorderable = !todo.done && !todo.skipped && !showDate;
+  const reorderable = allowReorder && !todo.done && !todo.skipped && !showDate;
   const actions: TodoMenuAction[] = [
     { label: "编辑", icon: <Pencil size={16} />, onSelect: () => onEdit(todo) },
     ...(onMoveToToday ? [{ label: "移到今天", icon: <CalendarArrowUp size={16} />, onSelect: () => onMoveToToday(todo.id) }] : []),
@@ -99,7 +101,7 @@ export function TodoItem({
         disabled={toggleDisabled}
         aria-label={todo.skipped ? "恢复这次任务" : todo.done ? "标记未完成" : "标记完成"}
         aria-pressed={todo.done}
-        className="button grid h-11 w-11 shrink-0 place-items-center rounded-xl focus-ring disabled:opacity-50"
+        className="button grid h-[44px] w-[44px] shrink-0 place-items-center rounded-xl focus-ring disabled:opacity-50 sm:h-11 sm:w-11"
       >
         <span className={cn(
           "grid h-5 w-5 place-items-center rounded-full border",

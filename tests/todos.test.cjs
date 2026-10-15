@@ -39,6 +39,17 @@ test("calendar dates are stable across month boundaries and time zones", () => {
   assert.match(repeatDescription("weekly", "2026-10-02"), /每周五/);
 });
 
+test("task search matches title and time with normalized AND terms", () => {
+  const { todoMatchesQuery } = loadTs("lib/todo-search.ts");
+  const todo = { text: "React 组件阅读", scheduledTime: "08:30" };
+  assert.equal(todoMatchesQuery(todo, " ＲＥＡＣＴ   组件\t０８：３０ "), true);
+  assert.equal(todoMatchesQuery(todo, "组件 react"), true);
+  assert.equal(todoMatchesQuery(todo, "react 09:30"), false);
+  assert.equal(todoMatchesQuery(todo, "vue"), false);
+  assert.equal(todoMatchesQuery({ text: "中文任务", scheduledTime: null }, "中文"), true);
+  assert.equal(todoMatchesQuery(todo, "  "), true);
+});
+
 test("PostgreSQL recurrence migration and operations", async (t) => {
   const db = new PGlite();
   const setUser = (id) => db.query("select set_config('request.jwt.claim.sub', $1, false)", [id]);

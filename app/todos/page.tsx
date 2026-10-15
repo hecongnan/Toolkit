@@ -12,15 +12,21 @@ import { DateNav } from "@/components/todos/DateNav";
 import { TodoEditor } from "@/components/todos/TodoEditor";
 import { TodoForm } from "@/components/todos/TodoForm";
 import { TodoItem } from "@/components/todos/TodoItem";
+import { TodoSearch } from "@/components/todos/TodoSearch";
+import { useTodoView } from "@/components/todos/useTodoView";
+import { useAuth } from "@/components/auth/AuthProvider";
 import { Notice } from "@/components/ui/Notice";
 import { createClient } from "@/lib/supabase/client";
 import { toTodo, type TodoRow } from "@/lib/supabase/mappers";
 import { firstRepeatDate, shiftDate, todayKey, todoErrorMessage } from "@/lib/todo-dates";
+import { todoMatchesQuery } from "@/lib/todo-search";
 import type { Todo, TodoScope } from "@/lib/types";
 
 export default function TodosPage() {
+  const { user } = useAuth();
   const [today, setToday] = useState(todayKey);
-  const [date, setDate] = useState(todayKey);
+  const { date, query, setDate, setQuery, ready: viewReady } = useTodoView(user?.id);
+  const searchInput = useRef<HTMLInputElement>(null);
   const [todos, setTodos] = useState<Todo[]>([]);
   const [overdueCount, setOverdueCount] = useState(0);
   const [overdueLimit, setOverdueLimit] = useState(50);
@@ -87,9 +93,10 @@ export default function TodosPage() {
   }, [date, today, overdueLimit]);
 
   useEffect(() => {
+    if (!viewReady) return;
     void loadTodos();
     return () => { requestRef.current += 1; };
-  }, [loadTodos]);
+  }, [loadTodos, viewReady]);
 
   useEffect(() => {
     const refresh = () => {
@@ -105,7 +112,7 @@ export default function TodosPage() {
     const timer = window.setInterval(() => { if (todayKey() !== today) refresh(); }, 60_000);
     window.addEventListener("focus", refresh);
     return () => { window.clearInterval(timer); window.removeEventListener("focus", refresh); };
-  }, [today, loadTodos, loading, loadFailed, adding, editing, deleting]);
+  }, [today, loadTodos, loading, loadFailed, adding, editing, deleting, setDate]);
 
   const dayTodos = useMemo(() => todos.filter((todo) => todo.dueDate === date), [todos, date]);
   const undone = dayTodos.filter((todo) => !todo.done && !todo.skipped).sort((a, b) => a.position - b.position || a.createdAt - b.createdAt);
@@ -115,6 +122,14 @@ export default function TodosPage() {
     .sort((a, b) => a.dueDate.localeCompare(b.dueDate) || a.priority - b.priority || a.position - b.position);
   const total = undone.length + done.length;
   const pct = total ? Math.round(done.length / total * 100) : 0;
+  const hasSearch = Boolean(query.trim());
+  const shownUndone = undone.filter((todo) => todoMatchesQuery(todo, query));
+  const shownDone = done.filter((todo) => todoMatchesQuery(todo, query));
+  const shownSkipped = skipped.filter((todo) => todoMatchesQuery(todo, query));
+  const shownOverdue = date === today ? overdue.filter((todo) => todoMatchesQuery(todo, query)) : [];
+  const scopeTotal = dayTodos.length + (date === today ? overdue.length : 0);
+  const matches = shownUndone.length + shownDone.length + shownSkipped.length + shownOverdue.length;
+  const clearSearch = () => { setQuery(""); searchInput.current?.focus(); };
   const disabled = busy || loading || pendingIds.size > 0;
 
   const runMutation = async (action: () => Promise<void>, success: string, formError = false): Promise<boolean> => {
@@ -146,11 +161,12 @@ export default function TodosPage() {
     // Another date's tasks are not loaded here; do not reuse today's ordering.
     const position = firstRepeatDate(todo.dueDate, todo.repeat) !== date ? Date.now()
       : undone.length ? Math.max(...undone.map((item) => item.position)) + 1024 : 1024;
-    const { error: createError } = await createClient().rpc("todo_create", {
+    const { data: created, error: createError } = await createClient().rpc("todo_create", {
       p_id: todo.id, p_text: todo.text, p_priority: todo.priority, p_due_date: todo.dueDate,
       p_time: todo.scheduledTime ?? null, p_repeat: todo.repeat, p_position: position,
-    });
+    }).single();
     if (createError) throw createError;
+    if (!created || typeof created !== "object" || !("id" in created) || created.id !== todo.id) throw new Error("未收到任务创建确认，输入已保留，请重试。");
   }, firstRepeatDate(todo.dueDate, todo.repeat) !== date
     ? `任务已添加，安排在 ${firstRepeatDate(todo.dueDate, todo.repeat)}。可切换日期查看。`
     : todo.repeat === "weekdays" ? "任务已添加；周一至周五出现，周末自动顺延。" : "任务已添加。", true);
@@ -237,7 +253,7 @@ export default function TodosPage() {
   const moveTodo = (id: string, direction: -1 | 1) => {
     const index = undone.findIndex((todo) => todo.id === id);
     const target = index + direction;
-    if (index < 0 || target < 0 || target >= undone.length || disabled) return;
+    if (index < 0 || target < 0 || target >= undone.length || disabled || hasSearch) return;
     const ordered = [...undone];
     [ordered[index], ordered[target]] = [ordered[target], ordered[index]];
     void persistOrder(ordered);
@@ -246,14 +262,14 @@ export default function TodosPage() {
     const source = undone.findIndex((todo) => todo.id === draggingId);
     const target = undone.findIndex((todo) => todo.id === id);
     setDraggingId(null);
-    if (source < 0 || target < 0 || source === target || disabled) return;
+    if (source < 0 || target < 0 || source === target || disabled || hasSearch) return;
     const ordered = [...undone];
     const [moved] = ordered.splice(source, 1);
     ordered.splice(target, 0, moved);
     void persistOrder(ordered);
   };
   const renderTodo = (todo: Todo, index: number, overdueItem = false) => (
-    <TodoItem key={todo.id} todo={todo} disabled={disabled}
+    <TodoItem key={todo.id} todo={todo} disabled={disabled} allowReorder={!hasSearch}
       toggleDisabled={busy || loading || pendingIds.has(todo.id)} pending={pendingIds.has(todo.id)} showDate={overdueItem}
       onToggle={(id) => void toggle(id)} onEdit={(item) => { setError(null); setEditing(item); }}
       onDelete={(id) => { setError(null); setDeleting(todos.find((item) => item.id === id) ?? null); }}
@@ -266,7 +282,7 @@ export default function TodosPage() {
   return (
     <>
       <PageHeader eyebrow="一天，一步" title="每日待办" description="给重要的事留出时间。今天没完成的，也可以从容安排。"
-        action={<TodoForm date={date} onAdd={add} error={addError} disabled={disabled || loadFailed} onOpenChange={setAdding} />} />
+        action={<TodoForm date={date} onAdd={add} error={addError} disabled={disabled || loadFailed} onReset={() => setAddError(null)} onOpenChange={(open) => { setAdding(open); if (open) setAddError(null); }} />} />
       {error && <div role="alert" className="mb-4 space-y-2 rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-400">
         <p>{error}</p>{loadFailed && <Button size="sm" onClick={() => void loadTodos()}>重试加载</Button>}
       </div>}
@@ -274,7 +290,8 @@ export default function TodosPage() {
         undoLabel={undoTodo ? `撤销完成：${undoTodo.text}` : undefined}
         onUndo={undoTodo ? () => void toggle(undoTodo.id, true) : undefined} />}
       <div className="space-y-4 pb-16">
-        <DateNav value={date} onChange={setDate} disabled={busy || pendingIds.size > 0} />
+        <DateNav value={date} onChange={setDate} disabled={!viewReady || busy || pendingIds.size > 0} />
+        <TodoSearch query={query} onChange={setQuery} inputRef={searchInput} includeOverdue={date === today} matching={matches} total={scopeTotal} loading={loading} />
         <Card className="!p-4">
           <div className="mb-3 flex items-center justify-between text-xs text-[color:var(--text-muted)]">
             <span>{loading ? "正在加载当日进度..." : "当日进度 · " + done.length + "/" + total + "（跳过不计入）"}</span><span>{pct}%</span>
@@ -284,15 +301,17 @@ export default function TodosPage() {
         </Card>
         {loading ? <div className="flex justify-center py-12"><Spinner size={20} /></div> : loadFailed ? null : (
           <>
-            {undone.length ? <Card className="!p-0 overflow-hidden"><div className="divide-y divide-[color:var(--border-subtle)]">{undone.map((todo, index) => renderTodo(todo, index))}</div></Card>
-              : <EmptyState icon={<CheckCircle2 size={20} />} title={done.length ? "当日任务已全部完成" : "这一天没有待办"} description="点击“添加任务”安排待办，或切换日期查看重复计划。" />}
-            {done.length > 0 && <details className="surface"><summary className="cursor-pointer px-4 py-3 text-sm text-[color:var(--text-muted)]">已完成 · {done.length}</summary><div className="divide-y divide-[color:var(--border-subtle)]">{done.map((todo, index) => renderTodo(todo, index))}</div></details>}
-            {skipped.length > 0 && <details className="surface"><summary className="cursor-pointer px-4 py-3 text-sm text-[color:var(--text-muted)]">已跳过 · {skipped.length}（可恢复）</summary><div className="divide-y divide-[color:var(--border-subtle)]">{skipped.map((todo) => <div key={todo.id} className="flex items-center justify-between gap-3 px-4 py-3"><span className="break-words text-sm">{todo.text}</span><Button size="sm" disabled={busy || loading || pendingIds.has(todo.id)} onClick={() => void toggle(todo.id)}>恢复这次</Button></div>)}</div></details>}
+            {hasSearch && matches === 0 ? <EmptyState title="没有匹配的任务" description="搜索只覆盖当前范围，原有任务没有被删除。可清除搜索，或切换日期继续查找。" action={<Button onClick={clearSearch}>清除搜索，查看全部</Button>} />
+              : shownUndone.length ? <Card className="!p-0 overflow-hidden"><div className="divide-y divide-[color:var(--border-subtle)]">{shownUndone.map((todo, index) => renderTodo(todo, index))}</div></Card>
+              : !hasSearch && <EmptyState icon={<CheckCircle2 size={20} />} title={done.length ? "当日任务已全部完成" : "这一天没有待办"} description="点击“添加任务”安排待办，或切换日期查看重复计划。" />}
+            {shownDone.length > 0 && <details className="surface" open={hasSearch || undefined}><summary className="min-h-11 cursor-pointer px-4 py-3 text-sm text-[color:var(--text-muted)]">已完成 · {hasSearch ? `${shownDone.length}/${done.length}` : done.length}</summary><div className="divide-y divide-[color:var(--border-subtle)]">{shownDone.map((todo, index) => renderTodo(todo, index))}</div></details>}
+            {shownSkipped.length > 0 && <details className="surface" open={hasSearch || undefined}><summary className="min-h-11 cursor-pointer px-4 py-3 text-sm text-[color:var(--text-muted)]">已跳过 · {hasSearch ? `${shownSkipped.length}/${skipped.length}` : skipped.length}（可恢复）</summary><div className="divide-y divide-[color:var(--border-subtle)]">{shownSkipped.map((todo) => <div key={todo.id} className="flex items-center justify-between gap-3 px-4 py-3"><span className="break-words text-sm">{todo.text}</span><Button size="sm" disabled={busy || loading || pendingIds.has(todo.id)} onClick={() => void toggle(todo.id)}>恢复这次</Button></div>)}</div></details>}
             {date === today && overdueCount > 0 && <details className="surface" open>
-              <summary className="status-warning min-h-11 cursor-pointer px-4 py-4 text-sm font-medium">逾期未完成 · {overdueCount}</summary>
+              <summary className="status-warning min-h-11 cursor-pointer px-4 py-4 text-sm font-medium">逾期未完成 · {hasSearch ? `${shownOverdue.length} 项匹配 / ${overdueCount} 项总计` : overdueCount}</summary>
               <p className="px-4 pb-3 text-xs leading-relaxed text-[color:var(--text-muted)]">重复任务补齐最近 30 天；单次任务不限制逾期日期。可以完成、移到今天或跳过这次；更早的重复记录可按日期查看。</p>
-              <div className="divide-y divide-[color:var(--border-subtle)]">{overdue.map((todo, index) => renderTodo(todo, index, true))}</div>
-              {overdue.length < overdueCount && <div className="p-4"><Button size="sm" disabled={disabled} onClick={() => setOverdueLimit((value) => value + 50)}>加载更多（已显示 {overdue.length}/{overdueCount}）</Button></div>}
+              <div className="divide-y divide-[color:var(--border-subtle)]">{shownOverdue.map((todo, index) => renderTodo(todo, index, true))}</div>
+              {hasSearch && shownOverdue.length === 0 && <p className="px-4 pb-3 text-xs text-[color:var(--text-muted)]">{overdue.length < overdueCount ? "已加载的逾期任务中没有匹配；点击“加载更多”后可查找更多记录。" : "逾期任务中没有匹配。"}</p>}
+              {overdue.length < overdueCount && <div className="p-4"><Button size="sm" disabled={disabled} onClick={() => setOverdueLimit((value) => value + 50)}>加载更多（已加载 {overdue.length}/{overdueCount}）</Button></div>}
             </details>}
           </>
         )}

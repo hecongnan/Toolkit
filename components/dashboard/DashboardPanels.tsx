@@ -24,7 +24,7 @@ export function DashboardPanels({ data, hasLegacyData }: Props) {
       <div className="mb-5 grid h-11 w-11 place-items-center rounded-xl bg-[var(--accent-soft)] text-[color:var(--accent)]"><Sparkles size={20} aria-hidden /></div>
       <h2 id="welcome-start-title" className="text-2xl font-semibold tracking-tight">从第一条待办开始</h2>
       <p className="mt-3 max-w-lg text-sm leading-6 text-[color:var(--text-muted)]">写下一件今天想完成的事。不必一次安排好所有计划，从一小步开始就好。</p>
-      <Link href="/todos" className="button button-primary mt-6 inline-flex min-h-11 items-center justify-center gap-2 rounded-xl px-4 text-sm font-medium focus-ring">创建第一条待办 <ArrowRight size={15} aria-hidden /></Link>
+      <Link href="/todos?date=today" className="button button-primary mt-6 inline-flex min-h-11 items-center justify-center gap-2 rounded-xl px-4 text-sm font-medium focus-ring">创建第一条待办 <ArrowRight size={15} aria-hidden /></Link>
       <div className="mt-6 flex flex-wrap items-center gap-x-5 gap-y-3 border-t border-[color:var(--border-subtle)] pt-4 text-sm">
         <Link href="/learning" className="quiet-link inline-flex min-h-11 items-center gap-2 rounded-lg focus-ring"><BookOpen size={16} aria-hidden />也可以先添加学习资料</Link>
         <Link href="/settings" className="quiet-link inline-flex min-h-11 items-center rounded-lg focus-ring">AI 可以稍后设置</Link>
@@ -36,13 +36,13 @@ export function DashboardPanels({ data, hasLegacyData }: Props) {
     <Card className="!p-0 overflow-hidden" role="region" aria-labelledby="overview-todos-title" aria-busy={status.todos.loading}>
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[color:var(--border-subtle)] px-4 py-3 sm:px-5">
         <h2 id="overview-todos-title" className="inline-flex items-center gap-2 text-sm font-semibold"><CheckCircle2 size={17} className="text-[color:var(--accent)]" aria-hidden />今日待办</h2>
-        <Link href="/todos" className="quiet-link inline-flex min-h-11 items-center gap-1 rounded-lg text-xs focus-ring">管理待办 <ArrowRight size={13} aria-hidden /></Link>
+        <Link href="/todos?date=today" className="quiet-link inline-flex min-h-11 items-center gap-1 rounded-lg text-xs focus-ring">管理待办 <ArrowRight size={13} aria-hidden /></Link>
       </div>
       <ModuleFeedback label="今日待办" state={status.todos} onRetry={() => void reloadSection("todos")} retryLabel="重试待办" />
       {!status.todos.loaded && status.todos.loading && <SectionSkeleton label="正在加载今日待办" rows={3} />}
       {status.todos.loaded && (preview.length > 0 ? <ul className="divide-y divide-[color:var(--border-subtle)]">
         {preview.map((todo) => <li key={todo.id}>
-          <Link href="/todos" aria-label={`在每日待办中查看：${todo.text}`} className="button button-ghost flex min-h-16 items-center gap-3 px-4 py-3 focus-ring sm:px-5">
+          <Link href={`/todos?date=${todo.dueDate}`} aria-label={`在每日待办中查看：${todo.text}`} className="button button-ghost flex min-h-16 items-center gap-3 px-4 py-3 focus-ring sm:px-5">
             <div className="min-w-0 flex-1">
               <p className={`line-clamp-2 break-words text-sm leading-6 ${todo.done ? "text-[color:var(--text-muted)] line-through" : "text-[color:var(--text-primary)]"}`}>{todo.text}</p>
               <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[color:var(--text-muted)]">
@@ -57,13 +57,13 @@ export function DashboardPanels({ data, hasLegacyData }: Props) {
       </ul> : <div className="px-5 py-6">
         <p className="text-sm font-medium">今天还没有安排</p>
         <p className="mt-2 text-sm leading-6 text-[color:var(--text-muted)]">挑一件想完成的事，给今天一个轻松的开始。</p>
-        <Link href="/todos" className="button button-primary mt-4 inline-flex min-h-11 items-center gap-2 rounded-xl px-4 text-sm font-medium focus-ring">添加今日待办 <ArrowRight size={15} aria-hidden /></Link>
+        <Link href="/todos?date=today" className="button button-primary mt-4 inline-flex min-h-11 items-center gap-2 rounded-xl px-4 text-sm font-medium focus-ring">添加今日待办 <ArrowRight size={15} aria-hidden /></Link>
       </div>)}
     </Card>
 
     <div className="min-w-0 space-y-5">
       <section aria-label="工作区摘要" className="grid grid-cols-3 gap-2 sm:gap-3">
-        <SummaryCard label="今日进度" value={`${completed}/${todos.length}`} hint={todos.length ? `${Math.round(completed / todos.length * 100)}% 已完成` : "今日未安排"} icon={<CheckCircle2 size={16} />} href="/todos" state={status.todos} />
+        <SummaryCard label="今日进度" value={`${completed}/${todos.length}`} hint={todos.length ? `${Math.round(completed / todos.length * 100)}% 已完成` : "今日未安排"} icon={<CheckCircle2 size={16} />} href="/todos?date=today" state={status.todos} />
         <SummaryCard label="学习资料" value={String(materials.length)} hint={`${materials.filter((item) => item.status !== "done").length} 项待学习`} icon={<BookOpen size={16} />} href="/learning" state={status.materials} />
         <SummaryCard label="最近分析" value={String(reports.length)} hint="最近的报告" icon={<Github size={16} />} href="/github" state={status.reports} />
       </section>
