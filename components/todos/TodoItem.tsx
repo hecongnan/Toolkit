@@ -19,6 +19,9 @@ import { TodoMenu, type TodoMenuAction } from "./TodoMenu";
 import { useRouter } from "next/navigation";
 import { Timer } from "lucide-react";
 import { TaskTimeInfo } from "@/components/time/TaskTimeProvider";
+import { useNotes } from "@/components/notes/NotesProvider";
+import Link from "next/link";
+import { NotebookPen } from "lucide-react";
 
 interface Props {
   todo: Todo;
@@ -69,6 +72,7 @@ export function TodoItem({
   allowReorder = true,
 }: Props) {
   const router = useRouter();
+  const notes = useNotes();
   const reorderable = allowReorder && !todo.done && !todo.skipped && !showDate;
   const actions: TodoMenuAction[] = [
     { label: "编辑", icon: <Pencil size={16} />, onSelect: () => onEdit(todo) },
@@ -80,6 +84,8 @@ export function TodoItem({
       { label: "下移", icon: <ChevronDown size={16} />, disabled: !canMoveDown, onSelect: () => onMove(todo.id, 1) },
     ] : []),
     { label: "记录时间", icon: <Timer size={16} />, onSelect: () => router.push(`/time?task=${todo.id}`) },
+    { label: "写笔记", icon: <NotebookPen size={16} />, onSelect: () => notes.openNote({ task: todo }) },
+    { label: "查看笔记", icon: <NotebookPen size={16} />, onSelect: () => router.push(`/notes?task=${todo.id}`) },
     { label: "删除", icon: <Trash2 size={16} />, danger: true, onSelect: () => onDelete(todo.id) },
   ];
   return (
@@ -148,6 +154,7 @@ export function TodoItem({
           </div>
         )}
         <TaskTimeInfo task={todo} disabled={disabled} />
+        <Link href={`/notes?task=${todo.id}`} className="quiet-link inline-flex min-h-11 max-w-full items-center rounded-lg text-xs focus-ring">任务笔记 →</Link>
         <Tag tone={PRIORITY_TONE[todo.priority]} className="mt-1.5 sm:hidden">
           P{todo.priority} · {PRIORITY_LABEL[todo.priority]}
         </Tag>
@@ -159,6 +166,7 @@ export function TodoItem({
 
       <TodoMenu title={todo.text} disabled={disabled} actions={actions} />
       <div className="todo-actions hidden shrink-0 flex-wrap items-center justify-end sm:flex">
+        <IconButton label="写笔记" disabled={disabled} onClick={() => notes.openNote({ task: todo })}><NotebookPen size={16} /></IconButton>
         <IconButton label="记录时间" disabled={disabled} onClick={() => router.push(`/time?task=${todo.id}`)}><Timer size={16} /></IconButton>
         {reorderable && (
           <>

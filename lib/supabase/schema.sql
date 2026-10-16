@@ -1,5 +1,5 @@
--- Fresh installs only: run this file, then migrations/20261002_todo_recurrence.sql.
--- Existing Todo 3.0 databases need no SQL for the action-workspace redesign.
+-- Fresh installs only: run this baseline, then the ordered migrations in README.md.
+-- Existing databases upgrade through migrations; do not rerun this baseline.
 -- Retired materials/report tables in existing databases are deliberately not dropped.
 create table if not exists public.todos (
   id uuid primary key default gen_random_uuid(),

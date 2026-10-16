@@ -24,9 +24,11 @@ import { createTodo } from "@/lib/todo-data";
 import Link from "next/link";
 import type { Todo, TodoScope } from "@/lib/types";
 import { TaskTimeFeedback, TaskTimeProvider } from "@/components/time/TaskTimeProvider";
+import { useNotes } from "@/components/notes/NotesProvider";
 
 export default function TodosPage() {
   const { user } = useAuth();
+  const notes = useNotes();
   const [today, setToday] = useState(todayKey);
   const { date, query, setDate, setQuery, ready: viewReady } = useTodoView(user?.id);
   const searchInput = useRef<HTMLInputElement>(null);
@@ -298,6 +300,8 @@ export default function TodosPage() {
       </div>}
       {notice && <Notice message={notice} onDismiss={dismissNotice}
         undoLabel={undoTodo ? `撤销完成：${undoTodo.text}` : undefined}
+        actionLabel={undoTodo ? "记录笔记" : undefined}
+        onAction={undoTodo ? () => { const task = todos.find((item) => item.id === undoTodo.id); if (task) { dismissNotice(); notes.openNote({ task }); } } : undefined}
         onUndo={undoTodo ? () => void toggle(undoTodo.id, true) : undefined} />}
       <div className="space-y-4 pb-16">
         <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs"><Link href={`/week?date=${date}`} className="quiet-link inline-flex min-h-11 items-center rounded-lg focus-ring">在周计划中查看这一天 →</Link><Link href="/review" className="quiet-link inline-flex min-h-11 items-center rounded-lg focus-ring">查看最近行动回顾 →</Link></div>

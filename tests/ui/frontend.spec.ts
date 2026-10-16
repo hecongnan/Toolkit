@@ -1,6 +1,7 @@
 import { test, expect, type Page, type BrowserContext, type Locator } from "@playwright/test";
 import { shiftDate } from "../../lib/todo-dates";
 import { recordedSeconds,type TimeRecord } from "../../lib/time-tracking";
+import { noteDraftKey, type TaskNote } from "../../lib/notes";
 
 const host = "frontend-preview.supabase.co";
 const userId = "11111111-1111-4111-8111-111111111111";
@@ -58,6 +59,9 @@ async function isolate(page: Page, context: BrowserContext, authenticated = true
     timeRecords: [] as (TimeRecord & {user_id:string})[], timeNow: Date.now(), timeMissing: false,
     timePlans: [] as (TodoPatchPlan & {lostResponse?:boolean})[], timeReadPlans: [] as ReadPlan[], timeReads: 0,
     timeWrites: [] as {name:string;payload:Record<string,unknown>}[],
+    notes: [] as (TaskNote & {user_id:string})[], noteMissing: false, noteReads: 0,
+    noteReadPlans: [] as ReadPlan[], notePlans: [] as (TodoPatchPlan & {lostResponse?:boolean})[],
+    noteWrites: [] as {name:string;payload:Record<string,unknown>}[],
   };
   await page.route("**/*", async (route) => {
     const request = route.request();
@@ -87,6 +91,37 @@ async function isolate(page: Page, context: BrowserContext, authenticated = true
     if (url.pathname === "/auth/v1/token") { state.authenticated = true; return respond(previewSession(state.authUser)); }
     if (url.pathname.startsWith("/rest/v1/rpc/")) {
       const name=url.pathname.split("/").pop()!;
+      if(name.startsWith("note_")){
+        if(state.noteMissing)return respond({message:"function missing",code:"PGRST202"},404);
+        const payload=request.postDataJSON()??{};
+        if(name==="note_list"){
+          state.noteReads++;const plan=state.noteReadPlans.shift();
+          const words=String(payload.p_query??"").toLowerCase().trim().split(/\s+/).filter(Boolean);
+          const rows=state.notes.filter((note)=>note.user_id===state.authUser.id&&(!payload.p_task_id||note.task_id===payload.p_task_id)&&words.every((word)=>`${note.title}\n${note.body}\n${note.task_title??""}`.toLowerCase().includes(word))).sort((a,b)=>b.updated_at.localeCompare(a.updated_at)||a.id.localeCompare(b.id));
+          const result=JSON.parse(JSON.stringify({notes:rows.slice(payload.p_offset,payload.p_offset+payload.p_limit),total:rows.length}));
+          if(plan?.wait)await plan.wait;if(plan?.fail)return respond({message:"模拟笔记加载失败",code:"P0001"},400);return respond(result);
+        }
+        state.noteWrites.push({name,payload});const plan=state.notePlans.shift();if(plan?.wait)await plan.wait;
+        if(plan?.outcome==="error")return respond({message:"模拟笔记保存失败，当前内容已保留",code:"P0001"},400);
+        if(plan?.outcome==="empty")return respond(null);
+        let row=state.notes.find((note)=>note.id===payload.p_id&&note.user_id===state.authUser.id);
+        if(name==="note_save"){
+          const task=state.todos.find((item)=>item.id===payload.p_task_id&&item.user_id===state.authUser.id);
+          if(payload.p_task_id&&!task)return respond({message:"关联任务不存在或不属于当前账号，笔记内容已保留",code:"P0001"},400);
+          if(row&&payload.p_version===null){if(row.title!==payload.p_title||row.body!==payload.p_body||row.task_id!==payload.p_task_id)return respond({message:"这条笔记可能已保存，请先核对已有笔记",code:"P0001"},400);return respond(row);}
+          if((row&&row.version!==payload.p_version)||(!row&&payload.p_version!==null))return respond({message:"笔记已在其他页面更新，当前内容已保留",code:"P0001"},400);
+          const now=new Date().toISOString();
+          if(!row){row={id:payload.p_id,user_id:state.authUser.id,title:payload.p_title,body:payload.p_body,task_id:task?.id??null,task_title:task?.text??null,task_date:task?.due_date??null,version:1,created_at:now,updated_at:now};state.notes.push(row);}
+          else{const changed=row.task_id!==payload.p_task_id;Object.assign(row,{title:payload.p_title,body:payload.p_body,task_id:payload.p_task_id,version:row.version+1,updated_at:now});if(changed){row.task_title=task?.text??null;row.task_date=task?.due_date??null;}}
+          if(plan?.lostResponse)return respond({message:"模拟保存响应丢失",code:"temporary_error"},502);
+          return respond(row);
+        }
+        if(name==="note_delete"){
+          if(!row||row.version!==payload.p_version)return respond({message:"笔记已改变或不存在，请刷新后重试",code:"P0001"},400);
+          state.notes.splice(state.notes.indexOf(row),1);return respond(row.id);
+        }
+        throw new Error("Unhandled notes RPC: "+name);
+      }
       if(name.startsWith("time_")){
         if(state.timeMissing)return respond({message:"function missing",code:"PGRST202"},404);
         const payload=request.postDataJSON()??{};
@@ -654,6 +689,7 @@ for (const mode of [
       ["/week", "一周计划", "本周"],
       ["/review", "行动回顾", "每天的计划与完成情况"],
       ["/time", "时间记录", "开始记录一段投入"],
+      ["/notes", "笔记", "还没有笔记"],
     ]) {
       await page.goto(path);
       await expect(page.getByRole("heading", { level: 1, name: title })).toBeVisible();
@@ -1737,7 +1773,7 @@ test.describe("connected action workspace", () => {
       await page.goto(old);
       await expect(page).toHaveURL(new RegExp(target === "/" ? "/$" : target + "$"));
       await expect(page.getByRole("heading", { name: heading, level: 1, exact: true })).toBeVisible();
-      await expect(page.getByRole("navigation", { name: "主要导航" }).getByRole("link")).toHaveCount(5);
+      await expect(page.getByRole("navigation", { name: "主要导航" }).getByRole("link")).toHaveCount(6);
       await expect(page.getByRole("link", { name: /^(AI 设置|项目分析|学习资料)$/ })).toHaveCount(0);
     }
     for (const api of ["/api/analyze", "/api/analyze/chat", "/api/ai/status"]) expect((await page.request.post(api, { data: {} })).status()).toBe(404);
@@ -2095,6 +2131,98 @@ test.describe("connected time overview and task effort",()=>{
     await page.goto("/");await page.evaluate(()=>{document.documentElement.style.fontSize="200%";});await expect(page.getByRole("region",{name:"今日投入"}).getByLabel("今日已保存用时",{exact:true})).toHaveText("0秒");await noOverflow(page);await page.screenshot({path:info.outputPath("daily-time-mobile.png"),fullPage:true});
     await page.goto("/todos");await page.evaluate(()=>{document.documentElement.style.fontSize="200%";});const row=todoRow(page,"每天读书");await row.getByRole("button",{name:"继续记录",exact:true}).click();await expect(row).toContainText("计时中");await noOverflow(page);await page.screenshot({path:info.outputPath("task-time-mobile.png"),fullPage:true});expect(state.errors).toEqual([]);
   });
+});
+
+function noteFixture(id:string,overrides:Partial<TaskNote>={}):TaskNote&{user_id:string}{
+  return{id,user_id:userId,title:"学习收获",body:"理解状态更新，记录实践过程。",task_id:null,task_title:null,task_date:null,version:1,created_at:timestamp,updated_at:timestamp,...overrides};
+}
+
+test.describe("task-linked notes",()=>{
+  test("completion offers an optional note without blocking the list and returns to the current task after rescheduling",async({page,context})=>{
+    const state=await isolate(page,context);await page.goto("/todos");const row=todoRow(page,"每天读书");await row.getByRole("button",{name:"标记完成",exact:true}).click();
+    await expect(page.getByRole("dialog")).toHaveCount(0);expect(state.noteWrites).toHaveLength(0);
+    await page.getByRole("button",{name:"记录笔记",exact:true}).click();const dialog=page.getByRole("dialog",{name:"记录笔记",exact:true});
+    await expect(dialog.getByLabel("关联任务",{exact:true})).toHaveValue(state.todos[0].id);await dialog.getByLabel("笔记正文").fill("今天理解了 React 状态更新\n函数式更新可避免读取过期状态。");await dialog.getByRole("button",{name:"保存笔记",exact:true}).click();await expect(dialog).not.toBeVisible();
+    expect(state.todos[0].done).toBe(true);expect(state.notes).toHaveLength(1);expect(state.notes[0].task_date).toBe(today);
+    state.todos[0].text="改名后的阅读任务";state.todos[0].due_date=shiftDate(today,2);
+    await page.getByRole("navigation",{name:"主要导航"}).getByRole("link",{name:"笔记",exact:true}).click();await expect(page.locator("[data-note-id]")).toContainText("每天读书");
+    await page.getByRole("button",{name:"返回关联任务",exact:true}).click();await expect(page.getByLabel("选择任务日期")).toHaveValue(shiftDate(today,2));await expect(page.getByLabel("搜索当前任务")).toHaveValue("改名后的阅读任务");expect(state.errors).toEqual([]);
+  });
+
+  test("independent notes preserve plain text and never execute pasted markup",async({page,context},info)=>{
+    const state=await isolate(page,context);await page.goto("/notes");await page.getByRole("button",{name:"新建笔记",exact:true}).click();const dialog=page.getByRole("dialog",{name:"记录笔记",exact:true});
+    await dialog.getByLabel("笔记正文").fill("独立知识记录\n<img src=\"https://invalid.example/track\" onerror=alert(1)>\n<script>alert(1)</script>\n    const indentation = true;\n\n");await dialog.getByRole("button",{name:"保存笔记",exact:true}).click();await expect(dialog).not.toBeVisible();
+    const card=page.locator("[data-note-id]");await expect(card.getByRole("heading",{name:"独立知识记录",exact:true})).toBeVisible();await expect(card.locator("img,script")).toHaveCount(0);expect(state.notes[0].body).toContain("    const indentation = true;\n\n");expect(state.notes[0].task_id).toBeNull();expect(state.todoWrites).toHaveLength(0);await page.screenshot({path:info.outputPath("notes-desktop.png"),fullPage:true});expect(state.errors).toEqual([]);
+  });
+
+  test("failed saves preserve text and retry one id, with slow duplicate submissions and dismissal locked",async({page,context})=>{
+    const state=await isolate(page,context);state.notePlans.push({outcome:"error"});await page.goto("/notes");await page.getByRole("button",{name:"新建笔记",exact:true}).click();const dialog=page.getByRole("dialog",{name:"记录笔记",exact:true});
+    await dialog.getByLabel("笔记正文").fill("失败后继续保存的知识");await dialog.getByRole("button",{name:"保存笔记",exact:true}).click();await expect(dialog.getByRole("alert")).toContainText("模拟笔记保存失败");await expect(dialog.getByLabel("笔记正文")).toHaveValue("失败后继续保存的知识");
+    const slow=gate();state.notePlans.push({wait:slow.wait});try{
+      await dialog.getByRole("button",{name:"保存笔记",exact:true}).click();await expect.poll(()=>state.noteWrites.length).toBe(2);await page.keyboard.press("Escape");await expect(dialog).toBeVisible();await dialog.locator("form").evaluate((form:HTMLFormElement)=>{form.requestSubmit();form.requestSubmit();});expect(state.noteWrites).toHaveLength(2);
+      slow.release();await expect(dialog).not.toBeVisible();expect(state.notes).toHaveLength(1);expect(state.noteWrites[0].payload.p_id).toBe(state.noteWrites[1].payload.p_id);
+    }finally{slow.release();}expect(state.errors).toEqual([]);
+  });
+
+  test("a lost save response retries safely and does not report changed input as saved",async({page,context})=>{
+    const state=await isolate(page,context);state.notePlans.push({lostResponse:true});await page.goto("/notes");await page.getByRole("button",{name:"新建笔记",exact:true}).click();const dialog=page.getByRole("dialog",{name:"记录笔记",exact:true});await dialog.getByLabel("笔记正文").fill("服务器已保存的正文");await dialog.getByRole("button",{name:"保存笔记",exact:true}).click();await expect(dialog.getByRole("alert")).toContainText("响应丢失");
+    await dialog.getByLabel("笔记正文").fill("响应丢失后修改的正文");await dialog.getByRole("button",{name:"保存笔记",exact:true}).click();await expect(dialog.getByRole("alert")).toContainText("可能已保存");expect(state.notes[0].body).toBe("服务器已保存的正文");await expect(dialog.getByLabel("笔记正文")).toHaveValue("响应丢失后修改的正文");
+    await dialog.getByLabel("笔记正文").fill("服务器已保存的正文");await dialog.getByRole("button",{name:"保存笔记",exact:true}).click();await expect(dialog).not.toBeVisible();expect(state.notes).toHaveLength(1);expect(state.errors).toEqual([]);
+  });
+
+  test("draft survives closing and reload and is not silently reassigned when another task opens the editor",async({page,context})=>{
+    const state=await isolate(page,context);await page.goto("/todos");await todoRow(page,"每天读书").getByRole("button",{name:"写笔记",exact:true}).click();const dialog=page.getByRole("dialog",{name:"记录笔记",exact:true});await dialog.getByLabel("笔记正文").fill("原任务的未保存笔记");
+    await page.keyboard.press("Escape");await expect(dialog.getByRole("alert",{name:"未保存的笔记"})).toBeVisible();await dialog.getByRole("button",{name:"保留草稿并关闭",exact:true}).click();await expect(dialog).not.toBeVisible();await page.reload();
+    await page.getByText("已完成 · 1",{exact:true}).click();await todoRow(page,"整理学习资料").getByRole("button",{name:"写笔记",exact:true}).click();await expect(page.getByRole("region",{name:"恢复笔记草稿"})).toContainText("每天读书");await page.getByRole("button",{name:"恢复草稿",exact:true}).click();await expect(dialog.getByLabel("笔记正文")).toHaveValue("原任务的未保存笔记");await expect(dialog.getByLabel("关联任务",{exact:true})).toHaveValue(state.todos[0].id);
+    await dialog.getByRole("button",{name:"保存笔记",exact:true}).click();await expect(dialog).not.toBeVisible();expect(state.notes[0].task_id).toBe(state.todos[0].id);expect(await page.evaluate((key)=>sessionStorage.getItem(key),noteDraftKey(userId))).toBeNull();expect(state.errors).toEqual([]);
+  });
+
+  test("discard clears a draft, and reverting an edit does not leave stale changed text for recovery",async({page,context})=>{
+    const state=await isolate(page,context);state.notes.push(noteFixture("99999999-9999-4999-8999-000000000001"));await page.goto("/notes");await page.getByRole("button",{name:"编辑笔记",exact:true}).click();const dialog=page.getByRole("dialog",{name:"编辑笔记",exact:true});
+    await dialog.getByLabel("笔记正文").fill("修改后准备还原");await expect.poll(()=>page.evaluate((key)=>sessionStorage.getItem(key),noteDraftKey(userId))).not.toBeNull();await dialog.getByLabel("笔记正文").fill(state.notes[0].body);await expect.poll(()=>page.evaluate((key)=>sessionStorage.getItem(key),noteDraftKey(userId))).toBeNull();await page.keyboard.press("Escape");await expect(dialog).not.toBeVisible();
+    await page.getByRole("button",{name:"新建笔记",exact:true}).click();const fresh=page.getByRole("dialog",{name:"记录笔记",exact:true});await fresh.getByLabel("笔记正文").fill("放弃的临时内容");await page.keyboard.press("Escape");await fresh.getByRole("button",{name:"放弃修改并关闭",exact:true}).click();await expect(fresh).not.toBeVisible();expect(await page.evaluate((key)=>sessionStorage.getItem(key),noteDraftKey(userId))).toBeNull();expect(state.noteWrites).toHaveLength(0);expect(state.errors).toEqual([]);
+  });
+
+  test("storage failures never promise a recoverable draft and still allow server saving",async({page,context})=>{
+    const state=await isolate(page,context);await page.addInitScript(()=>{const original=Storage.prototype.setItem;Storage.prototype.setItem=function(key,value){if(key.startsWith("toolkit:note-draft:"))throw new DOMException("quota","QuotaExceededError");return original.call(this,key,value);};});await page.goto("/notes");await page.getByRole("button",{name:"新建笔记",exact:true}).click();const dialog=page.getByRole("dialog",{name:"记录笔记",exact:true});await dialog.getByLabel("笔记正文").fill("不能依赖本地草稿时先保存");await expect(dialog.getByRole("alert")).toContainText("草稿无法保留");await page.keyboard.press("Escape");await expect(dialog.getByRole("button",{name:"保留草稿并关闭",exact:true})).toBeDisabled();await dialog.getByRole("button",{name:"继续编辑",exact:true}).click();await dialog.getByRole("button",{name:"保存笔记",exact:true}).click();await expect(dialog).not.toBeVisible();expect(state.notes).toHaveLength(1);expect(state.errors).toEqual([]);
+  });
+
+  test("stale edits cannot overwrite another page and retain the local text",async({page,context})=>{
+    const state=await isolate(page,context);state.notes.push(noteFixture("99999999-9999-4999-8999-000000000001"));await page.goto("/notes");await page.getByRole("button",{name:"编辑笔记",exact:true}).click();const dialog=page.getByRole("dialog",{name:"编辑笔记",exact:true});await dialog.getByLabel("笔记正文").fill("当前页面的修改");state.notes[0].version++;state.notes[0].body="其他页面的新版本";await dialog.getByRole("button",{name:"保存笔记",exact:true}).click();await expect(dialog.getByRole("alert")).toContainText("其他页面更新");await expect(dialog.getByLabel("笔记正文")).toHaveValue("当前页面的修改");expect(state.notes[0].body).toBe("其他页面的新版本");expect(state.errors).toEqual([]);
+    await dialog.getByRole("button",{name:"另存为新笔记",exact:true}).click();const fresh=page.getByRole("dialog",{name:"记录笔记",exact:true});await expect(fresh.getByLabel("笔记正文")).toHaveValue("当前页面的修改");await fresh.getByRole("button",{name:"保存笔记",exact:true}).click();await expect(fresh).not.toBeVisible();expect(state.notes).toHaveLength(2);expect(state.notes[0].body).toBe("其他页面的新版本");
+  });
+
+  test("search and pagination use all saved notes and task filtering isolates repeated occurrences",async({page,context})=>{
+    const state=await isolate(page,context);for(let i=0;i<51;i++)state.notes.push(noteFixture(`99999999-9999-4999-8999-${String(i).padStart(12,"0")}`,{title:`笔记 ${i}`,body:i===50?"很早以前的 React 知识":"普通内容",task_id:i===50?state.todos[0].id:null}));
+    await page.goto("/notes");await expect(page.locator("[data-note-id]")).toHaveCount(50);await page.getByRole("button",{name:"下一页",exact:true}).click();await expect(page.locator("[data-note-id]")).toHaveCount(1);await expect(page.locator("[data-note-id]")).toContainText("笔记 50");
+    await page.getByLabel("搜索笔记",{exact:true}).fill("React 知识");await page.getByRole("button",{name:"搜索",exact:true}).click();await expect(page.locator("[data-note-id]")).toHaveCount(1);await expect(page.locator("[data-note-id]")).toContainText("很早以前");
+    await page.goto(`/notes?task=${state.todos[0].id}`);await expect(page.locator("[data-note-id]")).toHaveCount(1);await expect(page.getByText(/任务笔记：每天读书/)).toBeVisible();expect(state.errors).toEqual([]);
+  });
+
+  test("old search responses do not replace the latest result, and a failed refresh preserves it",async({page,context})=>{
+    const state=await isolate(page,context);state.notes.push(noteFixture("99999999-9999-4999-8999-000000000001",{body:"唯一匹配知识"}));const slow=gate();state.noteReadPlans.push({wait:slow.wait});
+    try{await page.goto("/notes");await expect.poll(()=>state.noteReads).toBe(1);await page.getByLabel("搜索笔记",{exact:true}).fill("不存在");await page.getByRole("button",{name:"搜索",exact:true}).click();await expect(page.getByRole("heading",{name:"没有匹配的笔记",exact:true})).toBeVisible();slow.release();await expect(page.locator("[data-note-id]")).toHaveCount(0);
+      await page.getByRole("button",{name:"清除搜索",exact:true}).click();await expect(page.locator("[data-note-id]")).toHaveCount(1);state.noteReadPlans.push({fail:true});await page.getByRole("button",{name:"刷新笔记",exact:true}).click();await expect(page.locator("#main-content").getByRole("alert")).toContainText("上次结果");await expect(page.locator("[data-note-id]")).toHaveCount(1);await page.getByRole("button",{name:"重试加载笔记",exact:true}).click();await expect(page.locator("#main-content").getByRole("alert")).toHaveCount(0);expect(state.errors).toEqual([]);
+    }finally{slow.release();}
+  });
+
+  test("failed deletion keeps the note until confirmed and orphaned notes keep their original context",async({page,context})=>{
+    const state=await isolate(page,context);state.notes.push(noteFixture("99999999-9999-4999-8999-000000000001",{task_title:"已删除的阅读任务",task_date:today}));await page.goto("/notes");await expect(page.locator("[data-note-id]")).toContainText("已移除，笔记保留");await expect(page.getByRole("button",{name:"返回关联任务",exact:true})).toHaveCount(0);state.notePlans.push({outcome:"error"});await page.getByRole("button",{name:"删除笔记",exact:true}).click();const dialog=page.getByRole("dialog",{name:"删除笔记",exact:true});await dialog.getByRole("button",{name:"确认删除笔记",exact:true}).click();await expect(dialog.getByRole("alert")).toBeVisible();expect(state.notes).toHaveLength(1);await dialog.getByRole("button",{name:"确认删除笔记",exact:true}).click();await expect(dialog).not.toBeVisible();await expect(page.locator("[data-note-id]")).toHaveCount(0);expect(state.todos).toHaveLength(2);expect(state.errors).toEqual([]);
+  });
+
+  test("missing notes migration remains isolated from task completion",async({page,context})=>{
+    const state=await isolate(page,context);state.noteMissing=true;await page.goto("/notes");await expect(page.locator("#main-content").getByRole("alert")).toContainText("笔记数据库更新");await expect(page.getByRole("heading",{name:"还没有笔记",exact:true})).toHaveCount(0);await page.goto("/todos");await todoRow(page,"每天读书").getByRole("button",{name:"标记完成",exact:true}).click();await expect.poll(()=>state.todos[0].done).toBe(true);expect(state.noteWrites).toHaveLength(0);expect(state.errors).toEqual([]);
+  });
+
+  for(const width of [320,375])test("mobile completion, note editor and long text support large fonts at "+width,async({page,context},info)=>{
+    await page.setViewportSize({width,height:900});const state=await isolate(page,context);await page.emulateMedia({reducedMotion:"reduce"});await page.addInitScript(()=>localStorage.setItem("toolkit-theme","dark"));await page.goto("/todos");await page.evaluate(()=>{document.documentElement.style.fontSize="200%";});await todoRow(page,"每天读书").getByRole("button",{name:"标记完成",exact:true}).click();await expect(page.getByRole("button",{name:"记录笔记",exact:true})).toBeVisible();await noOverflow(page);
+    await page.getByRole("button",{name:"记录笔记",exact:true}).click();const dialog=page.getByRole("dialog",{name:"记录笔记",exact:true});await dialog.getByLabel("笔记正文").fill("移动端学习记录\n"+"LongUnbrokenKnowledgeToken".repeat(30));await dialog.getByLabel("关联任务",{exact:true}).scrollIntoViewIfNeeded();await noOverflow(page);await page.screenshot({path:info.outputPath("note-editor-mobile.png")});await dialog.getByRole("button",{name:"保存笔记",exact:true}).click();await expect(dialog).not.toBeVisible();
+    await page.goto("/notes");await page.evaluate(()=>{document.documentElement.style.fontSize="200%";});await expect(page.locator("[data-note-id]")).toHaveCount(1);await expect(page.getByRole("button",{name:"展开全文",exact:true})).toBeVisible();await noOverflow(page);await page.screenshot({path:info.outputPath("notes-mobile.png"),fullPage:true});
+    await page.getByRole("button",{name:"展开全文",exact:true}).click();await expect(page.locator("[data-note-body]")).toHaveText(state.notes[0].body);await page.getByRole("button",{name:"收起正文",exact:true}).click();
+    await page.goto(`/notes?task=${state.todos[0].id}`);await page.evaluate(()=>{document.documentElement.style.fontSize="200%";});await expect(page.getByRole("button",{name:"为此任务写笔记",exact:true})).toBeEnabled();await noOverflow(page);expect(state.todos[0].done).toBe(true);expect(state.errors).toEqual([]);
+  });
+
+  test("notes require a signed-in account",async({page,context})=>{await isolate(page,context,false);await page.goto("/notes");await expect(page).toHaveURL(/\/login\?next=/);await expect(page.getByRole("heading",{name:"欢迎回到 Toolkit",exact:true})).toBeVisible();});
 });
 
 test("login, registration and recovery pages stay accessible without a session", async ({ page, context }, info) => {
