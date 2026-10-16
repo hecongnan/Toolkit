@@ -65,13 +65,9 @@ function TimeWorkspace(){
   useEffect(()=>{const sequence=taskRead.current;void loadTasks();return()=>{sequence.version++;};},[loadTasks]);
   const selected=tasks.find((item)=>item.id===task);
   const active=tracker.active;
-  const refreshHistory=history.load;
-  const lastActive=useRef<string|null>(null);
   useEffect(()=>{
-    if(lastActive.current&&!active)void refreshHistory();
-    lastActive.current=active?.id??null;
     if(active)setStartId((previous)=>previous===active.id?uid():previous);
-  },[active,refreshHistory]);
+  },[active]);
   const control=async(action:"pause"|"resume"|"finish"|"discard")=>{
     if(await tracker.control(action)){
       if(action==="finish")setNotice("用时已保存，任务完成状态保持原样。");
@@ -80,7 +76,7 @@ function TimeWorkspace(){
   };
   const remove=async()=>{
     if(!deleting||deleteLock.current)return;deleteLock.current=true;setDeletingBusy(true);setDeleteError(null);
-    try{const {data,error}=await createClient().rpc("time_delete",{p_id:deleting.id,p_version:deleting.version});if(error)throw error;if(data!==deleting.id)throw new Error("未收到删除确认，请重试。");setDeleting(null);setNotice("时间记录已删除，回顾统计会随之更新。");await history.load();window.requestAnimationFrame(()=>historyHeading.current?.focus({preventScroll:true}));}
+    try{const {data,error}=await createClient().rpc("time_delete",{p_id:deleting.id,p_version:deleting.version});if(error)throw error;if(data!==deleting.id)throw new Error("未收到删除确认，请重试。");setDeleting(null);setNotice("时间记录已删除，回顾统计会随之更新。");tracker.refreshSaved();window.requestAnimationFrame(()=>historyHeading.current?.focus({preventScroll:true}));}
     catch(error){setDeleteError(timeError(error));}finally{deleteLock.current=false;setDeletingBusy(false);}
   };
   return <>
@@ -111,7 +107,7 @@ function TimeWorkspace(){
       {history.hasData&&<Card><TimeHistory records={history.records} from={history.range.from} to={history.range.to} onEdit={(initial)=>setEditor({initial})} onDelete={(record)=>{setDeleting(record);setDeleteError(null);}}/></Card>}
       <Link href="/review" className="quiet-link mt-3 inline-flex min-h-11 items-center rounded-lg text-sm focus-ring">去行动回顾查看时间占比 →</Link>
     </section>
-    {editor&&<TimeRecordEditor initial={editor.initial} tasks={tasks} defaultTask={selected} onClose={()=>setEditor(null)} onSaved={()=>{setNotice("时间记录已保存，可在行动回顾中查看。");void history.load();}}/>}
+    {editor&&<TimeRecordEditor initial={editor.initial} tasks={tasks} defaultTask={selected} onClose={()=>setEditor(null)} onSaved={()=>{setNotice("时间记录已保存，可在行动回顾中查看。");}}/>}
     <Modal open={discard} onClose={()=>{if(!tracker.busy)setDiscard(false);}} title="放弃当前计时"><p className="text-sm leading-6">这次计时及其暂停前的时段都会移除，不会进入回顾。需要保留用时，请选择结束并保存。</p>{tracker.error&&<p role="alert" className="mt-3 text-sm status-error">{tracker.error}</p>}<div className="mt-5 flex flex-wrap gap-2"><Button disabled={tracker.busy} onClick={()=>setDiscard(false)}>保留计时</Button><Button variant="danger" disabled={tracker.busy||!tracker.ready} onClick={()=>void control("discard")}>确认放弃计时</Button></div></Modal>
     <Modal open={Boolean(deleting)} onClose={()=>{if(!deleteLock.current)setDeleting(null);}} title="删除时间记录"><p className="break-words font-medium">{deleting?.title}</p><p className="mt-3 text-sm leading-6">删除后无法恢复，相应用时会从回顾统计中移除；关联待办仍会保留。</p>{deleteError&&<p role="alert" className="mt-3 text-sm status-error">{deleteError}</p>}<div className="mt-5 flex flex-wrap gap-2"><Button disabled={deletingBusy} onClick={()=>setDeleting(null)}>保留记录</Button><Button variant="danger" disabled={deletingBusy} onClick={()=>void remove()}>{deletingBusy?"正在删除…":"确认删除记录"}</Button></div></Modal>
   </>;

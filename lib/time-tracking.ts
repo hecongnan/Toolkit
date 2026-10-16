@@ -33,6 +33,20 @@ export function timeDistribution(records: TimeRecord[], from: string, to: string
   const total=values.reduce((sum,item)=>sum+item.seconds,0);
   return { total, items: values.map((item)=>({ ...item, percent: total ? item.seconds/total*100 : 0 })) };
 }
+export function taskTimeTotals(records: TimeRecord[]) {
+  const totals = new Map<string, { seconds: number; category: TimeCategory; latest: number }>();
+  for (const record of records) {
+    if (!record.finished_at || !record.task_id) continue;
+    const previous = totals.get(record.task_id);
+    const latest = Date.parse(record.started_at);
+    totals.set(record.task_id, {
+      seconds: (previous?.seconds ?? 0) + recordedSeconds(record),
+      category: previous && previous.latest > latest ? previous.category : record.category,
+      latest: Math.max(previous?.latest ?? -Infinity, latest),
+    });
+  }
+  return totals;
+}
 export function durationLabel(seconds: number): string {
   if(seconds>0&&seconds<1)return "不足1秒";
   const value=Math.max(0,Math.floor(seconds));

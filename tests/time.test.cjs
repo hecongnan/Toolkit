@@ -10,7 +10,7 @@ const root=path.resolve(__dirname,"..");
 const filename=path.join(root,"lib/time-tracking.ts");
 const mod=new Module(filename,module);
 mod._compile(ts.transpileModule(readFileSync(filename,"utf8"),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,filename);
-const {recordedSeconds,timeDistribution,localTimeRange,timerLabel}=mod.exports;
+const {recordedSeconds,timeDistribution,localTimeRange,timerLabel,taskTimeTotals}=mod.exports;
 const a="11111111-1111-4111-8111-111111111111",b="22222222-2222-4222-8222-222222222222";
 const migration=readFileSync(path.join(root,"lib/supabase/migrations/20261015_time_tracking.sql"),"utf8");
 
@@ -24,6 +24,15 @@ test("time statistics clip actual intervals across midnight and exclude pauses a
   assert.equal(timerLabel(3661),"01:01:01");
   const range=localTimeRange("2026-10-15","2026-10-15");
   assert.equal(Date.parse(range.to)-Date.parse(range.from),86400000);
+});
+
+test("task totals include all saved history for only that occurrence and retain its latest category",()=>{
+  const segment=(start,end)=>[{start,end}];
+  const old={task_id:"first",finished_at:"2026-09-01",category:"work",started_at:"2026-09-01T09:00:00Z",segments:segment("2026-09-01T09:00:00Z","2026-09-01T09:30:00Z")};
+  const recent={task_id:"first",finished_at:"2026-10-16",category:"study",started_at:"2026-10-16T09:00:00Z",segments:[...segment("2026-10-16T09:00:00Z","2026-10-16T09:10:00Z"),...segment("2026-10-16T10:00:00Z","2026-10-16T10:05:00Z")]};
+  const result=taskTimeTotals([recent,{...old,task_id:"next-occurrence"},old,{...old,task_id:null},{...old,finished_at:null}]);
+  assert.equal(result.size,2);assert.equal(result.get("first").seconds,2700);assert.equal(result.get("first").category,"study");
+  assert.equal(result.get("next-occurrence").seconds,1800);assert.equal(taskTimeTotals([]).size,0);
 });
 
 test("time tracking PostgreSQL, idempotency, conflict handling and ownership",async(t)=>{

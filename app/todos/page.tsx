@@ -23,6 +23,7 @@ import { todoMatchesQuery } from "@/lib/todo-search";
 import { createTodo } from "@/lib/todo-data";
 import Link from "next/link";
 import type { Todo, TodoScope } from "@/lib/types";
+import { TaskTimeFeedback, TaskTimeProvider } from "@/components/time/TaskTimeProvider";
 
 export default function TodosPage() {
   const { user } = useAuth();
@@ -289,7 +290,7 @@ export default function TodosPage() {
   );
 
   return (
-    <>
+    <TaskTimeProvider taskIds={todos.map((todo) => todo.id)}>
       <PageHeader eyebrow="一天，一步" title="每日待办" description="给重要的事留出时间。今天没完成的，也可以从容安排。"
         action={<TodoForm date={date} onAdd={add} error={addError} disabled={disabled || loadFailed} onReset={() => setAddError(null)} onOpenChange={(open) => { setAdding(open); if (open) setAddError(null); }} />} />
       {error && <div role="alert" className="mb-4 space-y-2 rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-400">
@@ -302,6 +303,7 @@ export default function TodosPage() {
         <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs"><Link href={`/week?date=${date}`} className="quiet-link inline-flex min-h-11 items-center rounded-lg focus-ring">在周计划中查看这一天 →</Link><Link href="/review" className="quiet-link inline-flex min-h-11 items-center rounded-lg focus-ring">查看最近行动回顾 →</Link></div>
         <DateNav value={date} onChange={setDate} disabled={!viewReady || busy || pendingIds.size > 0} />
         <TodoSearch query={query} onChange={setQuery} inputRef={searchInput} includeOverdue={date === today} matching={matches} total={scopeTotal} loading={loading} />
+        <TaskTimeFeedback />
         <Card className="!p-4">
           <div className="mb-3 flex items-center justify-between text-xs text-[color:var(--text-muted)]">
             <span>{loading ? "正在加载当日进度..." : "当日进度 · " + done.length + "/" + total + "（跳过不计入）"}</span><span>{pct}%</span>
@@ -341,6 +343,6 @@ export default function TodosPage() {
           </div>
         </div>}
       </Modal>
-    </>
+    </TaskTimeProvider>
   );
 }

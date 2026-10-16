@@ -8,8 +8,10 @@ import { createClient } from "@/lib/supabase/client";
 import { uid } from "@/lib/storage";
 import { durationLabel,localDateTime,recordedSeconds,TIME_CATEGORIES,timeError,type TimeCategory,type TimeRecord } from "@/lib/time-tracking";
 import type { Todo } from "@/lib/types";
+import { useTimeTracker } from "./TimeProvider";
 
 export function TimeRecordEditor({initial,tasks,defaultTask,onClose,onSaved}:{initial:TimeRecord|null;tasks:Todo[];defaultTask?:Todo;onClose:()=>void;onSaved:()=>void}){
+  const {refreshSaved}=useTimeTracker();
   const [id]=useState(()=>initial?.id??uid());
   const [base]=useState(()=>({title:initial?.title??"",category:initial?.category??"work" as TimeCategory,task:initial?.task_id??defaultTask?.id??"",
     start:localDateTime(initial?.started_at??new Date(Date.now()-1800_000).toISOString()),end:localDateTime(initial?.ended_at??new Date().toISOString())}));
@@ -32,7 +34,7 @@ export function TimeRecordEditor({initial,tasks,defaultTask,onClose,onSaved}:{in
       if(failure)throw failure;
       const saved=data as TimeRecord|null;
       if(!saved||saved.id!==id)throw new Error("未收到保存确认，当前输入已保留，请重试。");
-      onSaved();onClose();
+      refreshSaved();onSaved();onClose();
     }catch(failure){setError(timeError(failure));}finally{lock.current=false;setBusy(false);}
   };
   return <Modal open onClose={close} title={initial?"编辑时间记录":"补记时间"} className="task-dialog">

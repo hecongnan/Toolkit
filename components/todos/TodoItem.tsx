@@ -18,6 +18,7 @@ import type { Todo } from "@/lib/types";
 import { TodoMenu, type TodoMenuAction } from "./TodoMenu";
 import { useRouter } from "next/navigation";
 import { Timer } from "lucide-react";
+import { TaskTimeInfo } from "@/components/time/TaskTimeProvider";
 
 interface Props {
   todo: Todo;
@@ -146,6 +147,7 @@ export function TodoItem({
             )}
           </div>
         )}
+        <TaskTimeInfo task={todo} disabled={disabled} />
         <Tag tone={PRIORITY_TONE[todo.priority]} className="mt-1.5 sm:hidden">
           P{todo.priority} · {PRIORITY_LABEL[todo.priority]}
         </Tag>

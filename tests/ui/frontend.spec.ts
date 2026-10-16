@@ -190,7 +190,8 @@ async function isolate(page: Page, context: BrowserContext, authenticated = true
       if(state.timeMissing)return respond({message:"table missing",code:"PGRST205"},404);
       const plan=state.timeReadPlans.shift();
       const from=url.searchParams.get("ended_at")?.slice(3),to=url.searchParams.get("started_at")?.slice(3);
-      const rows=state.timeRecords.filter((row)=>row.finished_at&&row.user_id===state.authUser.id&&(!from||Date.parse(row.ended_at!)>Date.parse(from))&&(!to||Date.parse(row.started_at)<Date.parse(to))).sort((a,b)=>b.started_at.localeCompare(a.started_at)||a.id.localeCompare(b.id));
+      const tasks=url.searchParams.get("task_id")?.replace(/^in\.\(|\)$/g,"").split(",");
+      const rows=state.timeRecords.filter((row)=>row.finished_at&&row.user_id===state.authUser.id&&(!tasks||tasks.includes(row.task_id!))&&(!from||Date.parse(row.ended_at!)>Date.parse(from))&&(!to||Date.parse(row.started_at)<Date.parse(to))).sort((a,b)=>b.started_at.localeCompare(a.started_at)||a.id.localeCompare(b.id));
       const offset=Number(url.searchParams.get("offset")??0),limit=Number(url.searchParams.get("limit")??rows.length);
       const copy=JSON.parse(JSON.stringify(rows.slice(offset,offset+limit)));
       if(plan?.wait)await plan.wait;if(plan?.fail)return respond({message:"模拟时间加载失败",code:"P0001"},400);
@@ -2003,6 +2004,96 @@ test.describe("time tracking and review pie",()=>{
     await page.screenshot({path:info.outputPath("time-active-mobile.png")});await page.getByRole("button",{name:"结束并保存",exact:true}).click();
     await expect(page.getByRole("button",{name:"开始计时",exact:true})).toBeEnabled();
     await page.goto("/review");await page.evaluate(()=>{document.documentElement.style.fontSize="200%";});const pie=page.getByRole("figure",{name:"时间分类占比"});await expect(pie).toBeVisible();await noOverflow(page);await pie.screenshot({path:info.outputPath("time-pie-mobile.png")});expect(state.errors).toEqual([]);
+  });
+});
+
+test.describe("connected time overview and task effort",()=>{
+  test("today clips midnight records, excludes an unfinished timer and survives a task read failure",async({page,context},info)=>{
+    const state=await isolate(page,context);
+    const cross=timeFixture("77777777-7777-4777-8777-000000000001","study",shiftDate(today,-1),"23:50","23:59");
+    cross.ended_at=`${today}T00:20:00+08:00`;cross.segments[0].end=cross.ended_at;
+    const active=timeFixture("77777777-7777-4777-8777-000000000003","work",today,"00:00","00:10");active.finished_at=null;active.source="timer";
+    state.timeRecords.push(cross,timeFixture("77777777-7777-4777-8777-000000000002","work",today,"00:20","00:50"),active);
+    state.readPlans.set("todos",[{fail:true}]);await page.goto("/");
+    const panel=page.getByRole("region",{name:"今日投入",exact:true});await expect(panel.getByLabel("今日已保存用时",{exact:true})).toHaveText("50分 0秒");
+    await expect(panel).toContainText("00:10:00");await expect(panel).toContainText("本次未保存用时");
+    await expect(panel.getByRole("button",{name:"继续计时",exact:true})).toBeEnabled();await panel.getByRole("button",{name:"继续计时",exact:true}).click();
+    await expect(panel.getByRole("button",{name:"暂停计时",exact:true})).toBeEnabled();expect(state.timeWrites.at(-1)?.payload.p_action).toBe("resume");
+    await page.screenshot({path:info.outputPath("daily-time-desktop.png"),fullPage:true});expect(state.errors).toEqual([]);
+  });
+
+  test("task totals include old saved history and quick continue preserves the task list and latest category",async({page,context})=>{
+    const state=await isolate(page,context);const taskId=state.todos[0].id;
+    const old=timeFixture("77777777-7777-4777-8777-000000000001","work",shiftDate(today,-45),"09:00","09:30");old.task_id=taskId;
+    const latest=timeFixture("77777777-7777-4777-8777-000000000002","study",shiftDate(today,-1),"09:00","09:15");latest.task_id=taskId;
+    const unrelated=timeFixture("77777777-7777-4777-8777-000000000003","life",shiftDate(today,-2),"09:00","10:00");unrelated.task_id="88888888-8888-4888-8888-888888888888";
+    state.timeRecords.push(old,latest,unrelated);await page.goto("/todos");const row=todoRow(page,"每天读书");
+    await expect(row.locator("[data-task-time]")).toContainText("已记录 45分 0秒");expect(state.timeReads).toBe(1);
+    const original=await row.elementHandle();const reads=state.todoReads;
+    const continueButton=row.getByRole("button",{name:"继续记录",exact:true});await continueButton.focus();await page.keyboard.press("Enter");await expect(row).toContainText("计时中");
+    await expect(row.getByRole("button",{name:"查看当前计时",exact:true})).toBeFocused();
+    expect(await original!.evaluate((node)=>node.isConnected)).toBe(true);expect(state.todoReads).toBe(reads);await expect(page).toHaveURL(/\/todos$/);
+    expect(state.timeWrites[0].payload.p_category).toBe("study");expect(state.timeWrites[0].payload.p_task_id).toBe(taskId);expect(state.todos[0].done).toBe(false);
+    await page.getByRole("navigation",{name:"主要导航"}).getByRole("link",{name:"时间记录",exact:true}).click();
+    await page.getByRole("button",{name:"结束并保存",exact:true}).click();await expect(page.getByText("用时已保存，任务完成状态保持原样。",{exact:true})).toBeVisible();
+    await page.goto("/todos");await expect(todoRow(page,"每天读书").getByRole("button",{name:"继续记录",exact:true})).toBeEnabled();expect(state.errors).toEqual([]);
+  });
+
+  test("continuing a task never replaces another active timer",async({page,context})=>{
+    const state=await isolate(page,context);const saved=timeFixture("77777777-7777-4777-8777-000000000001","study",shiftDate(today,-1),"09:00","09:30");saved.task_id=state.todos[0].id;
+    const active=timeFixture("77777777-7777-4777-8777-000000000002","work",today,"00:00","00:10");active.finished_at=null;active.source="timer";active.title="另一件事";
+    state.timeRecords.push(saved,active);await page.goto("/todos");const row=todoRow(page,"每天读书");await row.getByRole("button",{name:"继续记录",exact:true}).click();
+    await expect(row.getByRole("status")).toContainText("不会自动切换");expect(state.timeWrites).toHaveLength(0);expect(state.timeRecords[1].title).toBe("另一件事");expect(state.errors).toEqual([]);
+  });
+
+  test("failed quick continue keeps saved effort and retries the same creation id",async({page,context})=>{
+    const state=await isolate(page,context);const saved=timeFixture("77777777-7777-4777-8777-000000000001","study",shiftDate(today,-1),"09:00","09:30");saved.task_id=state.todos[0].id;state.timeRecords.push(saved);state.timePlans.push({outcome:"error"});
+    await page.goto("/todos");const row=todoRow(page,"每天读书");await row.getByRole("button",{name:"继续记录",exact:true}).click();
+    await expect(row.getByRole("alert")).toContainText("模拟时间保存失败");await expect(row).toContainText("已记录 30分 0秒");
+    await row.getByRole("button",{name:"继续记录",exact:true}).click();await expect(row).toContainText("计时中");expect(state.timeWrites[0].payload.p_id).toBe(state.timeWrites[1].payload.p_id);expect(state.timeRecords).toHaveLength(2);expect(state.errors).toEqual([]);
+  });
+
+  test("a slow previous date cannot overwrite the current task effort",async({page,context})=>{
+    const state=await isolate(page,context);const tomorrow=shiftDate(today,1);state.todos[1].due_date=tomorrow;state.todos[1].done=false;
+    const first=timeFixture("77777777-7777-4777-8777-000000000001","work",shiftDate(today,-1),"09:00","09:30");first.task_id=state.todos[0].id;
+    const next=timeFixture("77777777-7777-4777-8777-000000000002","study",shiftDate(today,-1),"10:00","10:10");next.task_id=state.todos[1].id;state.timeRecords.push(first,next);
+    const slow=gate();state.timeReadPlans.push({wait:slow.wait});
+    try{
+      await page.goto("/todos");await expect.poll(()=>state.timeReads).toBe(1);await page.getByLabel("选择任务日期").fill(tomorrow);
+      const row=todoRow(page,"整理学习资料");await expect(row).toContainText("已记录 10分 0秒");
+      slow.release();await expect(row).toContainText("已记录 10分 0秒");await expect(page.locator("[data-task-time]")).toHaveCount(1);expect(state.errors).toEqual([]);
+    }finally{slow.release();}
+  });
+
+  test("failed today refresh keeps its prior result and retry replaces it with complete data",async({page,context})=>{
+    const state=await isolate(page,context);state.timeRecords.push(timeFixture("77777777-7777-4777-8777-000000000001","study",today,"00:00","00:30"));await page.goto("/");
+    const panel=page.getByRole("region",{name:"今日投入"});await expect(panel.getByLabel("今日已保存用时",{exact:true})).toHaveText("30分 0秒");
+    state.timeRecords.push(timeFixture("77777777-7777-4777-8777-000000000002","work",today,"00:30","01:00"));state.timeReadPlans.push({fail:true});
+    await page.getByRole("button",{name:"刷新概览",exact:true}).click();await expect(panel.getByRole("alert")).toContainText("显示上次结果");await expect(panel.getByLabel("今日已保存用时",{exact:true})).toHaveText("30分 0秒");
+    await panel.getByRole("button",{name:"重试今日用时",exact:true}).click();await expect(panel.getByLabel("今日已保存用时",{exact:true})).toHaveText("1小时 0分");expect(state.errors).toEqual([]);
+  });
+
+  test("failed later pages never publish partial task totals and a retry loads all history",async({page,context})=>{
+    const state=await isolate(page,context);
+    for(let i=0;i<503;i++){const record=timeFixture(`77777777-7777-4777-8777-${String(i).padStart(12,"0")}`,"work",shiftDate(today,-45),"09:00","09:01");record.task_id=state.todos[0].id;state.timeRecords.push(record);}
+    state.timeReadPlans.push({}, {fail:true});await page.goto("/todos");
+    await expect(page.getByRole("alert",{name:"任务用时加载提示"})).toBeVisible();await expect(todoRow(page,"每天读书")).toContainText("累计用时暂不可用");
+    await expect(todoRow(page,"每天读书").getByRole("button",{name:"标记完成",exact:true})).toBeEnabled();
+    await page.getByRole("button",{name:"重试任务用时",exact:true}).click();await expect(todoRow(page,"每天读书")).toContainText("已记录 8小时 23分");expect(state.errors).toEqual([]);
+  });
+
+  test("missing time schema does not block home tasks or daily completion",async({page,context})=>{
+    const state=await isolate(page,context);state.timeMissing=true;await page.goto("/");
+    await expect(page.getByRole("region",{name:"今日投入"}).getByLabel("今日已保存用时",{exact:true})).toHaveText("暂不可用");await expect(page.getByRole("region",{name:"今日待办"})).toContainText("每天读书");
+    await page.goto("/todos");await expect(page.getByRole("alert",{name:"任务用时加载提示"})).toContainText("数据库更新");
+    await todoRow(page,"每天读书").getByRole("button",{name:"标记完成",exact:true}).click();await expect.poll(()=>state.todos[0].done).toBe(true);expect(state.errors).toEqual([]);
+  });
+
+  for(const width of [320,375])test("daily summary and quick continue support mobile large text at "+width,async({page,context},info)=>{
+    await page.setViewportSize({width,height:900});const state=await isolate(page,context);await page.emulateMedia({reducedMotion:"reduce"});await page.addInitScript(()=>localStorage.setItem("toolkit-theme","dark"));
+    const saved=timeFixture("77777777-7777-4777-8777-000000000001","study",shiftDate(today,-1),"09:00","09:30");saved.task_id=state.todos[0].id;state.timeRecords.push(saved);
+    await page.goto("/");await page.evaluate(()=>{document.documentElement.style.fontSize="200%";});await expect(page.getByRole("region",{name:"今日投入"}).getByLabel("今日已保存用时",{exact:true})).toHaveText("0秒");await noOverflow(page);await page.screenshot({path:info.outputPath("daily-time-mobile.png"),fullPage:true});
+    await page.goto("/todos");await page.evaluate(()=>{document.documentElement.style.fontSize="200%";});const row=todoRow(page,"每天读书");await row.getByRole("button",{name:"继续记录",exact:true}).click();await expect(row).toContainText("计时中");await noOverflow(page);await page.screenshot({path:info.outputPath("task-time-mobile.png"),fullPage:true});expect(state.errors).toEqual([]);
   });
 });
 

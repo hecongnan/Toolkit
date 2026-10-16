@@ -3,10 +3,12 @@
 import Link from "next/link";
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { uid } from "@/lib/storage";
 import { recordedSeconds, timeError, timerLabel, type TimeCategory, type TimeRecord, type TimeSnapshot } from "@/lib/time-tracking";
 
 interface Tracker {
   active: TimeRecord | null; elapsed: number; loading: boolean; busy: boolean; error: string | null; ready: boolean;
+  historyRevision: number; refreshSaved: () => void;
   load: () => Promise<void>;
   start: (id:string,title:string,category:TimeCategory,taskId:string|null) => Promise<boolean>;
   control: (action:"pause"|"resume"|"finish"|"discard") => Promise<boolean>;
@@ -20,6 +22,8 @@ export function TimeProvider({ userId, children }: { userId:string; children:Rea
   const [ready,setReady]=useState(false);
   const [error,setError]=useState<string|null>(null);
   const [elapsed,setElapsed]=useState(0);
+  const [historyRevision,setHistoryRevision]=useState(0);
+  const previousActive=useRef<string|null>(null);
   const lock=useRef(false);
   const sequence=useRef({version:0});
   const baseline=useRef({server:0,monotonic:0});
@@ -27,6 +31,9 @@ export function TimeProvider({ userId, children }: { userId:string; children:Rea
   const apply=useCallback((snapshot:TimeSnapshot) => {
     if (!snapshot || !Number.isFinite(Date.parse(snapshot.server_now)) || (snapshot.record && !Array.isArray(snapshot.record.segments))) throw new Error("未收到有效的计时状态，请重试。");
     baseline.current={server:Date.parse(snapshot.server_now),monotonic:performance.now()};
+    const nextId=snapshot.record?.finished_at?null:snapshot.record?.id??null;
+    if(previousActive.current&&previousActive.current!==nextId)setHistoryRevision((value)=>value+1);
+    previousActive.current=nextId;
     setActive(snapshot.record?.finished_at ? null : snapshot.record);
     setReady(true);
     lastSync.current=Date.now();
@@ -50,7 +57,7 @@ export function TimeProvider({ userId, children }: { userId:string; children:Rea
     void load();
     const focus=()=>{if(document.visibilityState==="visible"&&Date.now()-lastSync.current>10_000)void load();};
     const online=()=>void load();
-    const storage=(event:StorageEvent)=>{if(event.key===`toolkit:time-sync:${userId}`)void load();};
+    const storage=(event:StorageEvent)=>{if(event.key===`toolkit:time-sync:${userId}`){void load();setHistoryRevision((value)=>value+1);}};
     window.addEventListener("focus",focus);window.addEventListener("storage",storage);window.addEventListener("online",online);document.addEventListener("visibilitychange",focus);
     return()=>{version.version++;window.removeEventListener("focus",focus);window.removeEventListener("storage",storage);window.removeEventListener("online",online);document.removeEventListener("visibilitychange",focus);};
   },[load,userId]);
@@ -68,7 +75,7 @@ export function TimeProvider({ userId, children }: { userId:string; children:Rea
       const {data,error:failure}=await createClient().rpc(name,params);
       if(failure)throw failure;
       apply(data as TimeSnapshot);
-      try{window.localStorage.setItem(`toolkit:time-sync:${userId}`,String(Date.now()));}catch{/* Server remains authoritative. */}
+      try{window.localStorage.setItem(`toolkit:time-sync:${userId}`,uid());}catch{/* Server remains authoritative. */}
       return true;
     }catch(failure){
       // The server may have saved a request whose response was lost. Reconcile
@@ -83,7 +90,11 @@ export function TimeProvider({ userId, children }: { userId:string; children:Rea
       setError(message+" 已尝试同步最新状态，请核对后继续。");return false;
     }finally{lock.current=false;setBusy(false);setLoading(false);}
   };
-  const value:Tracker={active,elapsed,loading,busy,error,ready,load,
+  const refreshSaved=useCallback(()=>{
+    setHistoryRevision((value)=>value+1);
+    try{window.localStorage.setItem(`toolkit:time-sync:${userId}`,uid());}catch{/* Local data still refreshes. */}
+  },[userId]);
+  const value:Tracker={active,elapsed,loading,busy,error,ready,load,historyRevision,refreshSaved,
     start:(id,title,category,taskId)=>mutate("time_start",{p_id:id,p_title:title,p_category:category,p_task_id:taskId}),
     control:(action)=>active ? mutate("time_control",{p_id:active.id,p_action:action,p_version:active.version}) : Promise.resolve(false)};
   return <Context.Provider value={value}>{children}</Context.Provider>;

@@ -9,9 +9,12 @@ import { RangeFeedback } from "@/components/workspace/RangeFeedback";
 import { TaskRows } from "@/components/workspace/TaskRows";
 import { useTaskRange, useToday } from "@/components/workspace/useTaskRange";
 import { dateLabel, dateRange, taskSummary, weekStart } from "@/lib/task-workspace";
+import { DailyTimeSummary } from "@/components/time/DailyTimeSummary";
+import { useTimeTracker } from "@/components/time/TimeProvider";
 
 export default function DashboardPage() {
   const today = useToday();
+  const tracker = useTimeTracker();
   const start = weekStart(today);
   const days = dateRange(start, 7);
   const data = useTaskRange(start, days[6], days);
@@ -21,7 +24,7 @@ export default function DashboardPage() {
   const priorities = current.filter((task) => !task.done).sort((a, b) => a.priority - b.priority || a.position - b.position).slice(0, 5);
   return <>
     <PageHeader eyebrow="个人行动工作台" title="今天，专注重要的事。" description={dateLabel(today, { year: "numeric", month: "long", day: "numeric", weekday: "long" })}
-      action={<Button variant="ghost" disabled={data.loading || data.pending.size > 0} onClick={() => void data.load()}><RefreshCw size={15} />{data.loading ? "正在同步" : "刷新概览"}</Button>} />
+      action={<Button variant="ghost" disabled={data.loading || data.pending.size > 0} onClick={() => { void data.load(); tracker.refreshSaved(); void tracker.load(); }}><RefreshCw size={15} />{data.loading ? "正在同步" : "刷新概览"}</Button>} />
     <section aria-label="工作区使用路径" className="mb-6 flex flex-wrap gap-2">
       {[
         { href: "/week", step: "01", title: "计划这一周", text: "把要做的事放到合适的日期", icon: CalendarDays },
@@ -31,6 +34,7 @@ export default function DashboardPage() {
         <Icon size={16} className="shrink-0 text-[color:var(--accent)]" aria-hidden /><span className="text-xs tabular-nums text-[color:var(--text-muted)]">{step}</span><span>{title}</span>
       </Link>)}
     </section>
+    <DailyTimeSummary today={today} />
     <RangeFeedback {...data} onRetry={() => void data.load()} disabled={data.pending.size > 0} />
     {data.hasData && <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
       <Card className="!p-0 overflow-hidden" role="region" aria-label="今日待办">
